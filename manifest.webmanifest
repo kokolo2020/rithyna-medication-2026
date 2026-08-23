@@ -1,0 +1,17 @@
+{
+  "name": "Rithyna Medication 2026",
+  "short_name": "Rithyna Meds",
+  "description": "Private medication, temperature and notes log for Rithyna.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eef7f6",
+  "theme_color": "#006b6f",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
