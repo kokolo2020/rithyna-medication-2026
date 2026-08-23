@@ -48,10 +48,25 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'POST') {
       let body;
       try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid request' }); }
+
+      if (body.action === 'repair_legacy_owners') {
+        if (session.role !== 'admin' || session.name !== 'Papa') return json(403, { error: 'Papa admin access required.' });
+        const nurses = ['Noni','Pan','Fon','Fah','Liew'];
+        const inList = nurses.map(n => `"${n}"`).join(',');
+        const affected = await supabase(`medication_entries?nurse=in.(${encodeURIComponent(inList)})&select=id,nurse`);
+        if (affected && affected.length) {
+          await supabase(`medication_entries?nurse=in.(${encodeURIComponent(inList)})`, {
+            method: 'PATCH',
+            body: JSON.stringify({ nurse: 'Papa', updated_at: new Date().toISOString() }),
+            prefer: 'return=minimal'
+          });
+        }
+        return json(200, { ok: true, repaired: affected ? affected.length : 0 });
+      }
+
       const e = body.entry || {};
       if (!e.id || !e.entry_date || !e.time) return json(400, { error: 'Missing entry details.' });
 
-      // Never let a nurse claim/overwrite an existing record owned by somebody else.
       const existing = await supabase(`medication_entries?id=eq.${encodeURIComponent(e.id)}&select=id,nurse`);
       const old = existing && existing[0];
       if (session.role !== 'admin' && old && old.nurse && old.nurse !== session.name) {
