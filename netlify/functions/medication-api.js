@@ -24,13 +24,7 @@ async function supabase(path, options = {}) {
   if (!url || !key) throw new Error('Supabase server connection is not configured yet.');
   const res = await fetch(`${url}/rest/v1/${path}`, {
     ...options,
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      Prefer: options.prefer || '',
-      ...(options.headers || {})
-    }
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: options.prefer || '', ...(options.headers || {}) }
   });
   const text = await res.text();
   let data = null;
@@ -56,20 +50,19 @@ exports.handler = async (event) => {
       try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid request' }); }
       const e = body.entry || {};
       if (!e.id || !e.entry_date || !e.time) return json(400, { error: 'Missing entry details.' });
-      if (session.role !== 'admin') e.nurse = session.name;
+
+      // Never let a nurse claim/overwrite an existing record owned by somebody else.
+      const existing = await supabase(`medication_entries?id=eq.${encodeURIComponent(e.id)}&select=id,nurse`);
+      const old = existing && existing[0];
+      if (session.role !== 'admin' && old && old.nurse && old.nurse !== session.name) {
+        return json(409, { error: 'Existing record belongs to another user and was not changed.', protected: true });
+      }
+
+      const owner = old?.nurse || (session.role === 'admin' ? (e.nurse || session.name) : session.name);
       const row = {
-        id: e.id,
-        user_id: e.user_id || null,
-        entry_timestamp: e.entry_timestamp,
-        entry_date: e.entry_date,
-        time: e.time,
-        medications: Array.isArray(e.medications) ? e.medications : [],
-        temp: e.temp === '' || e.temp == null ? null : Number(e.temp),
-        temp_unit: '°C',
-        note: e.note || '',
-        nurse: e.nurse || session.name,
-        updated_at: new Date().toISOString(),
-        deleted: false
+        id: e.id, user_id: e.user_id || null, entry_timestamp: e.entry_timestamp, entry_date: e.entry_date, time: e.time,
+        medications: Array.isArray(e.medications) ? e.medications : [], temp: e.temp === '' || e.temp == null ? null : Number(e.temp),
+        temp_unit: '°C', note: e.note || '', nurse: owner, updated_at: new Date().toISOString(), deleted: false
       };
       await supabase('medication_entries?on_conflict=id', { method: 'POST', body: JSON.stringify(row), prefer: 'resolution=merge-duplicates,return=minimal' });
       return json(200, { ok: true });
@@ -89,7 +82,5 @@ exports.handler = async (event) => {
     }
 
     return json(405, { error: 'Method not allowed' });
-  } catch (e) {
-    return json(500, { error: e.message || 'Server error' });
-  }
+  } catch (e) { return json(500, { error: e.message || 'Server error' }); }
 };
