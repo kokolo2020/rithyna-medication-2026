@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const NURSE_START_DATE = '2026-08-24';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' }, body: JSON.stringify(body) };
@@ -48,32 +49,18 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'POST') {
       let body;
       try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid request' }); }
-
-      if (body.action === 'repair_legacy_owners') {
-        if (session.role !== 'admin' || session.name !== 'Papa') return json(403, { error: 'Papa admin access required.' });
-        const nurses = ['Noni','Pan','Fon','Fah','Liew'];
-        const inList = nurses.map(n => `"${n}"`).join(',');
-        const affected = await supabase(`medication_entries?nurse=in.(${encodeURIComponent(inList)})&select=id,nurse`);
-        if (affected && affected.length) {
-          await supabase(`medication_entries?nurse=in.(${encodeURIComponent(inList)})`, {
-            method: 'PATCH',
-            body: JSON.stringify({ nurse: 'Papa', updated_at: new Date().toISOString() }),
-            prefer: 'return=minimal'
-          });
-        }
-        return json(200, { ok: true, repaired: affected ? affected.length : 0 });
-      }
-
       const e = body.entry || {};
       if (!e.id || !e.entry_date || !e.time) return json(400, { error: 'Missing entry details.' });
 
-      const existing = await supabase(`medication_entries?id=eq.${encodeURIComponent(e.id)}&select=id,nurse`);
+      const existing = await supabase(`medication_entries?id=eq.${encodeURIComponent(e.id)}&select=id,nurse,entry_date`);
       const old = existing && existing[0];
-      if (session.role !== 'admin' && old && old.nurse && old.nurse !== session.name) {
+      const legacy = e.entry_date < NURSE_START_DATE;
+
+      if (!legacy && session.role !== 'admin' && old && old.nurse && old.nurse !== session.name) {
         return json(409, { error: 'Existing record belongs to another user and was not changed.', protected: true });
       }
 
-      const owner = old?.nurse || (session.role === 'admin' ? (e.nurse || session.name) : session.name);
+      const owner = legacy ? null : (old?.nurse || (session.role === 'admin' ? (e.nurse || session.name) : session.name));
       const row = {
         id: e.id, user_id: e.user_id || null, entry_timestamp: e.entry_timestamp, entry_date: e.entry_date, time: e.time,
         medications: Array.isArray(e.medications) ? e.medications : [], temp: e.temp === '' || e.temp == null ? null : Number(e.temp),
@@ -88,10 +75,12 @@ exports.handler = async (event) => {
       try { body = JSON.parse(event.body || '{}'); } catch { return json(400, { error: 'Invalid request' }); }
       const id = String(body.id || '');
       if (!id) return json(400, { error: 'Missing id.' });
-      const found = await supabase(`medication_entries?id=eq.${encodeURIComponent(id)}&select=id,nurse`);
+      const found = await supabase(`medication_entries?id=eq.${encodeURIComponent(id)}&select=id,nurse,entry_date`);
       const row = found && found[0];
       if (!row) return json(404, { error: 'Record not found.' });
-      if (session.role !== 'admin' && row.nurse !== session.name) return json(403, { error: 'You can only delete your own records.' });
+      const legacy = row.entry_date < NURSE_START_DATE;
+      if (!legacy && session.role !== 'admin' && row.nurse !== session.name) return json(403, { error: 'You can only delete your own records.' });
+      if (legacy && session.role !== 'admin') return json(403, { error: 'Only Papa can delete historical records.' });
       await supabase(`medication_entries?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', prefer: 'return=minimal' });
       return json(200, { ok: true });
     }
