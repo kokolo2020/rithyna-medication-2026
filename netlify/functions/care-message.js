@@ -45,9 +45,12 @@ exports.handler = async (event) => {
 
   try {
     if (event.httpMethod === 'GET') {
-      const rows = await supabase('medication_entries?id=like.msg-%25&deleted=eq.false&order=entry_timestamp.desc&limit=1&select=id,note,entry_timestamp,nurse');
-      const row = rows && rows[0];
-      return json(200, { message: row ? { id: row.id, text: row.note || '', sent_at: row.entry_timestamp } : null });
+      const all = (event.queryStringParameters || {}).all === '1';
+      const limit = all ? 50 : 1;
+      const rows = await supabase(`medication_entries?id=like.msg-%25&deleted=eq.false&order=entry_timestamp.desc&limit=${limit}&select=id,note,entry_timestamp,nurse`);
+      const mapped = (rows || []).map(row => ({ id: row.id, text: row.note || '', sent_at: row.entry_timestamp }));
+      if (all) return json(200, { messages: mapped });
+      return json(200, { message: mapped[0] || null });
     }
 
     if (event.httpMethod === 'POST') {
