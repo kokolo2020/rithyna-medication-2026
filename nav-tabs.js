@@ -1,26 +1,29 @@
 (() => {
   const style=document.createElement('style');
   style.textContent=`
-    .rithyna-tabs{display:flex;gap:8px;align-items:center;margin:0 0 14px;overflow:auto;padding:2px 0}
-    .rithyna-tabs a{white-space:nowrap;text-decoration:none;border:1px solid #ffffff66;background:#ffffff18;color:#fff;border-radius:999px;padding:9px 14px;font-weight:900;box-shadow:0 4px 14px #003e4218}
-    .rithyna-tabs a.active{background:#fff;color:#087477;border-color:#fff}
+    .rithyna-tabs{display:flex;gap:10px;align-items:stretch;margin:0 0 14px;padding:2px 0;overflow:auto}
+    .rithyna-tabs a{min-width:126px;display:flex;align-items:center;gap:9px;white-space:nowrap;text-decoration:none;border:1px solid #ffffff45;background:linear-gradient(145deg,#ffffff20,#ffffff0b);backdrop-filter:blur(12px);color:#fff;border-radius:16px;padding:11px 14px;font-weight:900;box-shadow:inset 0 1px #ffffff30,0 8px 20px #003e4222}
+    .rithyna-tabs a.active{background:linear-gradient(145deg,#fff,#eaf9f6);color:#087477;border-color:#fff;box-shadow:0 10px 25px #003e4230}
+    .rithyna-tabs svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
     .rithyna-tabs a:not(.active):active{transform:scale(.98)}
-    @media(max-width:600px){.rithyna-tabs{margin-bottom:10px}.rithyna-tabs a{padding:8px 12px;font-size:13px}}
+    .clock-card{margin:0 0 16px;background:linear-gradient(145deg,#063f43,#0b696a);border:1px solid #ffffff24;border-radius:24px;padding:15px 18px;color:#fff;display:flex;align-items:center;justify-content:center;gap:22px;box-shadow:0 14px 35px #003e4230,inset 0 1px #ffffff22}
+    .analog-clock{width:148px;height:148px;border-radius:50%;position:relative;flex:0 0 auto;background:radial-gradient(circle at 50% 42%,#174f52 0,#082f32 72%);border:5px solid #d8efeb;box-shadow:inset 0 0 0 4px #ffffff18,inset 0 0 24px #0008,0 8px 22px #0005}
+    .clock-mark{position:absolute;left:50%;top:5px;width:2px;height:8px;background:#b9d9d5;transform-origin:1px 66px}.clock-mark.major{height:12px;width:3px;background:#fff}
+    .clock-hand{position:absolute;left:50%;bottom:50%;transform-origin:50% 100%;border-radius:999px}.hour-hand{width:5px;height:38px;margin-left:-2.5px;background:#fff}.minute-hand{width:4px;height:52px;margin-left:-2px;background:#e8fffb}.second-hand{width:2px;height:57px;margin-left:-1px;background:#ffcf5c}.clock-pin{position:absolute;width:12px;height:12px;border-radius:50%;background:#ffcf5c;left:50%;top:50%;transform:translate(-50%,-50%);box-shadow:0 0 0 4px #ffffff20}.clock-info{min-width:150px}.clock-time{font-size:32px;line-height:1;font-weight:950;letter-spacing:.03em;font-variant-numeric:tabular-nums}.clock-date{margin-top:7px;font-size:13px;color:#c8e5e1;font-weight:750}.clock-label{font-size:10px;text-transform:uppercase;letter-spacing:.18em;color:#7fd8cf;font-weight:950;margin-bottom:7px}
+    @media(max-width:600px){.rithyna-tabs{margin-bottom:10px}.rithyna-tabs a{min-width:0;flex:1;justify-content:center;padding:10px 8px;font-size:12px}.rithyna-tabs svg{width:21px;height:21px}.clock-card{padding:13px 12px;gap:15px}.analog-clock{width:126px;height:126px}.clock-mark{transform-origin:1px 55px}.hour-hand{height:32px}.minute-hand{height:44px}.second-hand{height:48px}.clock-time{font-size:25px}.clock-info{min-width:125px}}
   `;
   document.head.appendChild(style);
-
   const app=document.querySelector('.app');
   if(!app||document.getElementById('rithynaTabs')) return;
   const top=app.querySelector('.top');
-  const nav=document.createElement('nav');
-  nav.id='rithynaTabs';
-  nav.className='rithyna-tabs';
-  nav.innerHTML='<a class="active" href="./index.html">Medication</a><a href="./blood-tests.html">Blood Tests</a>';
-  if(top) top.insertAdjacentElement('afterend',nav); else app.insertBefore(nav,app.firstChild);
-
-  // The blood-test summary previously added inside the medication page is now replaced by the dedicated tab.
-  const old=document.getElementById('bloodTestPanel');
-  if(old) old.remove();
-  const obs=new MutationObserver(()=>{const x=document.getElementById('bloodTestPanel');if(x)x.remove()});
-  obs.observe(app,{childList:true,subtree:true});
+  const nav=document.createElement('nav');nav.id='rithynaTabs';nav.className='rithyna-tabs';
+  const pill=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.4 4.4a4.25 4.25 0 0 1 6 0l5.2 5.2a4.25 4.25 0 0 1 0 6l-4 4a4.25 4.25 0 0 1-6 0l-5.2-5.2a4.25 4.25 0 0 1 0-6z"/><path d="m7.2 17.2 10-10"/></svg>`;
+  const tube=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8M9 3v6.2l-4.1 7.1A3.1 3.1 0 0 0 7.6 21h8.8a3.1 3.1 0 0 0 2.7-4.7L15 9.2V3"/><path d="M7.3 15h9.4"/><path d="M11 12.3c0 1-.7 1.7-1.6 1.7s-1.6-.7-1.6-1.7c0-.8 1.6-2.5 1.6-2.5s1.6 1.7 1.6 2.5z"/></svg>`;
+  nav.innerHTML=`<a class="active" href="./index.html">${pill}<span>Medication</span></a><a href="./blood-tests.html">${tube}<span>Blood Tests</span></a>`;
+  if(top)top.insertAdjacentElement('afterend',nav);else app.insertBefore(nav,app.firstChild);
+  const clock=document.createElement('section');clock.className='clock-card';clock.id='careClock';clock.innerHTML='<div class="analog-clock" id="analogClock"><div class="clock-hand hour-hand" id="hourHand"></div><div class="clock-hand minute-hand" id="minuteHand"></div><div class="clock-hand second-hand" id="secondHand"></div><div class="clock-pin"></div></div><div class="clock-info"><div class="clock-label">Care time</div><div class="clock-time" id="clockTime">--:--:--</div><div class="clock-date" id="clockDate"></div></div>';
+  nav.insertAdjacentElement('afterend',clock);
+  const face=clock.querySelector('#analogClock');for(let i=0;i<12;i++){const m=document.createElement('i');m.className='clock-mark'+(i%3===0?' major':'');m.style.transform=`translateX(-50%) rotate(${i*30}deg)`;face.insertBefore(m,face.firstChild)}
+  function tick(){const d=new Date(),sec=d.getSeconds()+d.getMilliseconds()/1000,min=d.getMinutes()+sec/60,hr=(d.getHours()%12)+min/60;document.getElementById('hourHand').style.transform=`rotate(${hr*30}deg)`;document.getElementById('minuteHand').style.transform=`rotate(${min*6}deg)`;document.getElementById('secondHand').style.transform=`rotate(${sec*6}deg)`;document.getElementById('clockTime').textContent=d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});document.getElementById('clockDate').textContent=d.toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});requestAnimationFrame(tick)}tick();
+  const old=document.getElementById('bloodTestPanel');if(old)old.remove();const obs=new MutationObserver(()=>{const x=document.getElementById('bloodTestPanel');if(x)x.remove()});obs.observe(app,{childList:true,subtree:true});
 })();
