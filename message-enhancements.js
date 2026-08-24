@@ -21,7 +21,8 @@
         0%,100%{opacity:1;transform:translate(-50%,-50%) scale(1);box-shadow:0 30px 100px rgba(0,0,0,.72),0 0 55px rgba(73,255,146,.32)}
         50%{opacity:.18;transform:translate(-50%,-50%) scale(.985);box-shadow:0 30px 100px rgba(0,0,0,.72),0 0 100px rgba(73,255,146,.72)}
       }
-      .message-log-btn{position:fixed;right:16px;bottom:16px;z-index:7000;border:0;border-radius:999px;background:#0b6654;color:white;padding:12px 17px;font-weight:900;box-shadow:0 12px 30px rgba(0,0,0,.22)}
+      .message-log-btn{display:none;position:fixed;right:16px;bottom:16px;z-index:7000;border:0;border-radius:999px;background:#0b6654;color:white;padding:12px 17px;font-weight:900;box-shadow:0 12px 30px rgba(0,0,0,.22)}
+      .message-log-btn.visible{display:block}
       .message-log-backdrop{display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.55);padding:18px;align-items:center;justify-content:center}
       .message-log-backdrop.open{display:flex}
       .message-log-panel{width:min(760px,100%);max-height:82vh;overflow:hidden;background:#f8fffc;border-radius:24px;box-shadow:0 30px 90px rgba(0,0,0,.55);display:flex;flex-direction:column}
@@ -34,7 +35,6 @@
     document.head.appendChild(style);
   }
 
-  // Override the existing alert behavior: 3 slow flashes over 5 seconds, then steady for 3 seconds.
   window.showBroadcast = function(m) {
     if (!m?.text) return;
     if (window.msgTimer) clearTimeout(window.msgTimer);
@@ -46,6 +46,11 @@
     setTimeout(() => { b.className = 'broadcast show'; }, 5000);
     window.msgTimer = setTimeout(() => { b.className = 'broadcast'; }, 8000);
   };
+
+  function isSignedIn() {
+    const gate = document.getElementById('gate');
+    return !!gate && gate.classList.contains('hide');
+  }
 
   function ensureMessageLogUI() {
     if (document.getElementById('messageLogBtn')) return;
@@ -63,6 +68,13 @@
     backdrop.addEventListener('click', e => { if (e.target === backdrop) closeMessageLog(); });
     document.body.appendChild(backdrop);
     document.getElementById('messageLogClose').onclick = closeMessageLog;
+    updateMessageButton();
+  }
+
+  function updateMessageButton() {
+    const btn = document.getElementById('messageLogBtn');
+    if (!btn) return;
+    btn.classList.toggle('visible', isSignedIn());
   }
 
   function closeMessageLog() {
@@ -71,12 +83,13 @@
 
   async function openMessageLog() {
     ensureMessageLogUI();
+    if (!isSignedIn()) return;
     const bd = document.getElementById('messageLogBackdrop');
     const list = document.getElementById('messageLogList');
     bd.classList.add('open');
     list.innerHTML = '<div class="message-log-empty">Loading messages…</div>';
     try {
-      if (typeof request !== 'function' || !window.auth) throw new Error('Please sign in first.');
+      if (typeof request !== 'function') throw new Error('Unable to load messages.');
       const j = await request('care-message?all=1');
       const messages = j.messages || [];
       if (!messages.length) {
@@ -94,6 +107,8 @@
     }
   }
 
-  // Existing app keeps auth in a global lexical binding, so gate visibility is the reliable login indicator.
   ensureMessageLogUI();
+  const gate = document.getElementById('gate');
+  if (gate) new MutationObserver(updateMessageButton).observe(gate, {attributes:true, attributeFilter:['class']});
+  setInterval(updateMessageButton, 1000);
 })();
