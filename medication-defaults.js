@@ -1,0 +1,1 @@
+(()=>{if(typeof catalog==='undefined'||!Array.isArray(catalog))return;const requested=[['Celebrex 200mg','1 capsule'],['Omeprazole 20mg','1 tablet'],['Prednisolone 5mg','2 tablets']];for(const med of requested){const i=catalog.findIndex(x=>String(x[0]).toLowerCase()===med[0].toLowerCase());if(i>=0)catalog[i]=med;else catalog.push(med)}})();
