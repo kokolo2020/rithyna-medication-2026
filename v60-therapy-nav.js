@@ -1,0 +1,1 @@
+(()=>{function add(){document.querySelectorAll('.rithyna-tabs,.tabs').forEach(nav=>{if(nav.querySelector('a[href*="therapy.html"]'))return;const a=document.createElement('a');a.href='./therapy.html';a.innerHTML='<span>Therapy</span>';nav.appendChild(a)})}add();new MutationObserver(add).observe(document.body,{childList:true,subtree:true});})();
