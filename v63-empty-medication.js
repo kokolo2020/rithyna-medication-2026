@@ -1,0 +1,3 @@
+(()=>{function clearDefault(){const meds=document.getElementById('meds'),add=document.getElementById('add');if(!meds||!add||add.dataset.v63)return;add.dataset.v63='1';if(!window.__v63Editing){meds.innerHTML=''}const old=add.onclick;add.onclick=e=>{if(typeof old==='function')return old.call(add,e);if(typeof medRow==='function')medRow()}}
+function watchEdit(){const cancel=document.getElementById('cancel');if(cancel&&!cancel.dataset.v63){cancel.dataset.v63='1';cancel.addEventListener('click',()=>{window.__v63Editing=false;setTimeout(()=>{const meds=document.getElementById('meds');if(meds)meds.innerHTML=''},0)})}}
+function setup(){clearDefault();watchEdit()}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',setup);else setup();})();
