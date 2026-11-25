@@ -7,8 +7,8 @@ const METHODS = new Map([
   ["history", "GET"], ["record", "POST"], ["members", "GET"]
 ]);
 const BANGKOK_DAY = new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"});
-const bangkokDay = () => {
-  const values = Object.fromEntries(BANGKOK_DAY.formatToParts().map(({type,value}) => [type,value]));
+const bangkokDay = (instant) => {
+  const values = Object.fromEntries(BANGKOK_DAY.formatToParts(instant).map(({type,value}) => [type,value]));
   return values.year + "-" + values.month + "-" + values.day;
 };
 const MIME = "application/json; charset=utf-8";
@@ -90,7 +90,7 @@ async function readBody(request) {
   } catch { return null; }
 }
 
-export function createHandler({env = process.env, transport = fetch, demoNames = false} = {}) {
+export function createHandler({env = process.env, transport = fetch, demoNames = false, clock = Date.now} = {}) {
   return async function careApi(request) {
     const url = new URL(request.url);
     const action = url.searchParams.get("action") || "";
@@ -161,7 +161,8 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
         return respond(200, {members:result.data.map(member).filter(Boolean)});
       }
       if (action === "schedule") {
-        const date = url.searchParams.get("date") ?? bangkokDay();
+        const serverNowMs = clock();
+        const date = url.searchParams.get("date") ?? bangkokDay(new Date(serverNowMs));
         if (!realDate(date)) return bodyInvalid("Choose a valid schedule date.");
         const query = new URLSearchParams({
           select:"id,scheduled_time,label,items",
@@ -174,7 +175,7 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
         const slots = result.data.map(row => ({
           id:row.id, time:String(row.scheduled_time).slice(0,5), label:row.label, items:row.items
         }));
-        return respond(200, {slots});
+        return respond(200, {slots, date, serverNowMs});
       }
       if (action === "history") {
         const historyFields = "id,slot_id,slot_label,scheduled_time,scheduled_date,actual_date,actual_time,given_by_id,given_by_name,logged_by_id,logged_by_name,items,note,recorded_at";

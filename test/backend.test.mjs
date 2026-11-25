@@ -30,9 +30,9 @@ const req = (action, options = {}) => {
   });
 };
 const json = (data, status = 200) => Response.json(data, {status});
-function fixture({role="papa", missing=false, expired=false, recordFailure=null, records=[saved]}={}) {
+function fixture({role="papa", missing=false, expired=false, recordFailure=null, records=[saved], clock=Date.now}={}) {
   const calls = [];
-  const handler = createHandler({env:cfg, transport:async (input, opts) => {
+  const handler = createHandler({env:cfg, clock, transport:async (input, opts) => {
     const url = new URL(input);
     assert.equal(url.origin, "https://db.invalid");
     assert.equal(opts.headers.apikey, cfg.SUPABASE_ANON_KEY);
@@ -91,7 +91,10 @@ test("session derives role from active DB member; nurses cannot enumerate or del
 test("schedule is effective-dated and history uses snapshots and raw bearer", async () => {
   const {handler,calls} = fixture();
   const plan = await handler(req("schedule&date=2020-02-29"));
-  assert.deepEqual(await plan.json(),{slots:[{id:s,time:"23:55",label:"Synthetic slot",items:item}]});
+  const planData=await plan.json();
+  assert.deepEqual(planData.slots,[{id:s,time:"23:55",label:"Synthetic slot",items:item}]);
+  assert.equal(planData.date,"2020-02-29");
+  assert.ok(Number.isFinite(planData.serverNowMs));
   const after = await handler(req("history"));
   const {entries} = await after.json();
   assert.deepEqual(entries[0].items,item);
@@ -105,6 +108,20 @@ test("schedule is effective-dated and history uses snapshots and raw bearer", as
   assert.equal(getSlots.url.searchParams.get("or"),"(ends_before.is.null,ends_before.gt.2020-02-29)");
   assert.ok(calls.every(c=>c.opts.headers.authorization==="Bearer test-token"));
   assert.equal((await handler(req("schedule&date=2021-02-29"))).status,400);
+});
+
+test("default schedule follows Bangkok midnight, independent of browser or host timezone", async () => {
+  let now = Date.parse("2026-11-24T16:59:59Z");
+  const {handler,calls} = fixture({clock:() => now});
+  const before = await (await handler(req("schedule"))).json();
+  assert.equal(before.serverNowMs, now);
+  assert.equal(before.date,"2026-11-24");
+  now+=1000;
+  const current = await (await handler(req("schedule"))).json();
+  assert.equal(current.date,"2026-11-25");
+  assert.equal(current.serverNowMs,now);
+  const queries=calls.filter(c=>c.url.pathname.endsWith("care_slots"));
+  assert.deepEqual(queries.map(c=>c.url.searchParams.get("starts_on")),["lte.2026-11-24","lte.2026-11-25"]);
 });
 
 test("Papa may enumerate and log for another invited caregiver, but cannot inject attribution or medications", async () => {

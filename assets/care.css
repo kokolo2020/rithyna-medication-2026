@@ -7,3 +7,10 @@ label{display:block;font-size:.88rem;font-weight:700}input,select,textarea{font:
 @media(max-width:760px){.signed .main{margin:0 auto}.sidebar,.hide-mobile{display:none!important}.main{padding-top:17px;padding-bottom:calc(84px + env(safe-area-inset-bottom))}.top{height:65px}.brand-mark,.tile{width:37px;height:37px}.brand-type strong{font-size:.93rem}.top-brand,.session-nav{gap:8px}.session-name strong{font-size:.85rem;max-width:110px}.signed #mobile-nav:not([hidden]){display:flex;z-index:6;position:fixed;bottom:0;left:0;right:0;justify-content:center;padding:7px 12px max(7px,env(safe-area-inset-bottom));background:#fffefef5;border-top:1px solid var(--line);backdrop-filter:blur(12px)}#mobile-nav button{flex:1;justify-content:center;font-size:.85rem}.signin{grid-template-columns:1fr;margin-top:0;max-width:520px}.welcome{border-radius:20px}.welcome h1{font-size:2.35rem}.welcome-emblem{display:none}.hero{border-radius:18px}.hero h1{font-size:2rem}.hero .clock{padding:7px 8px;gap:5px}.clock .icon{width:17px;height:17px}}
 @media(max-width:480px){.hero .clock small{font-size:.61rem}.hero .clock strong{font-size:.82rem}.hero .eyebrow{font-size:.66rem}.hero .icon{display:none}.dose,.entry{grid-template-columns:auto minmax(0,1fr);gap:10px}.dose .actions{grid-column:2;justify-items:start}.entry>.status{grid-column:2;justify-self:start}.top{padding-inline:12px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;scroll-behavior:auto!important}}
+
+.day-progress{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;margin:1rem 0;padding:1rem}
+.day-progress-copy h2,.day-progress-copy p{margin:0}
+.day-progress-copy h2{font-size:1.05rem}
+.day-progress-copy p{margin-top:.2rem}
+.day-progress .button{white-space:nowrap;justify-self:end}
+@media(max-width:440px){.day-progress{grid-template-columns:auto minmax(0,1fr)}.day-progress .button{grid-column:2;justify-self:start}}

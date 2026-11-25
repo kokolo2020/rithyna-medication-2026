@@ -10,7 +10,12 @@ const dateFmt = new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",mont
 const timeFmt = new Intl.DateTimeFormat("en-GB",{timeZone:tz,hour:"2-digit",minute:"2-digit",hourCycle:"h23"});
 const niceDay = new Intl.DateTimeFormat("en-GB",{timeZone:"UTC",weekday:"short",day:"numeric",month:"short",year:"numeric"});
 const showDate = x => /^\d{4}-\d{2}-\d{2}$/.test(x||"") ? niceDay.format(new Date(x+"T12:00:00Z")) : "Unknown date";
-const now = () => { const p = Object.fromEntries(dateFmt.formatToParts(new Date()).map(x=>[x.type,x.value]));return {day:p.year+"-"+p.month+"-"+p.day,time:timeFmt.format(new Date())}; };
+let clockAnchor=null;
+const now = () => {
+ const instant=clockAnchor?new Date(clockAnchor.server+Math.max(0,performance.now()-clockAnchor.received)):new Date();
+ const p=Object.fromEntries(dateFmt.formatToParts(instant).map(x=>[x.type,x.value]));
+ return {day:p.year+"-"+p.month+"-"+p.day,time:timeFmt.format(instant)};
+};
 const hm = x => typeof x==="string" && /^\d{2}:\d{2}(:\d{2})?$/.test(x) ? x.slice(0,5) : "";
 const val = (x,fallback="") => typeof x==="string" ? x : fallback;
 const emptyMessage = "Nothing was assumed about any dose. Use your usual care process if you are unsure.";
@@ -51,6 +56,7 @@ async function api(action,{method="GET",data,token=state.token,date}={}) {
  return json;
 }
 function signout(message="") {
+ clockAnchor=null;
  state.version++;state.read++;state.token=null;state.member=null;state.members=[];state.slots=[];state.rows=[];state.route="today";state.load="idle";state.day="";state.uncertain=new Set();
  if($("record-dialog").open)$("record-dialog").close();
  $("record-dialog").replaceChildren();$("workspace").replaceChildren();$("password").value="";
@@ -75,14 +81,18 @@ function route(to){if(!state.member||!["today","records"].includes(to))return;st
 function dataShape(data,key){if(!Array.isArray(data?.[key]))throw new ApiError(502,"invalid_response");return data[key];}
 async function loadCare({silent=false}={}){
  if(!state.member)return false;
- const v=state.version,read=++state.read,day=now().day;
+ const v=state.version,read=++state.read;
  if(!silent){
   state.load="loading";render();
  }
  try{
-  const [s,h,m]=await Promise.all([api("schedule",{date:day}),api("history"),state.member.role==="papa"?api("members").catch(e=>{if(e.status===401)throw e;return {members:[]};}):{members:[]}]);
+  const [s,h,m]=await Promise.all([api("schedule").then(data=>({data,received:performance.now()})),api("history"),state.member.role==="papa"?api("members").catch(e=>{if(e.status===401)throw e;return {members:[]};}):{members:[]}]);
   if(v!==state.version||read!==state.read)return false;
-  state.slots=dataShape(s,"slots");state.rows=dataShape(h,"entries");state.members=dataShape(m,"members");state.day=day;state.load="ready";
+  const {date,serverNowMs}=s.data;
+  if(typeof date!=="string"||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(serverNowMs))
+   throw new ApiError(502,"invalid_response");
+  clockAnchor={server:serverNowMs,received:s.received};
+  state.slots=dataShape(s.data,"slots");state.rows=dataShape(h,"entries");state.members=dataShape(m,"members");state.day=date;state.load="ready";
   for(const row of state.rows)state.uncertain.delete(requestKey(row.slotId,row.scheduledDate));
   render();return true;
  }catch(e){
@@ -104,7 +114,7 @@ function status(given,text=""){
 function hero(title,description){
  const t=el("strong","","");
  t.dataset.liveClock="true";
- return el("div","hero",el("div","",el("span","eyebrow","CARE TOGETHER · V9"),el("h1","",title),el("p","",description)),
+ return el("div","hero",el("div","",el("span","eyebrow","ICARE · TEST WORKSPACE"),el("h1","",title),el("p","",description)),
    el("div","clock",icon("clock"),el("div","",el("small","","Bangkok time"),t)));
 }
 function syncClock(){
@@ -112,6 +122,16 @@ function syncClock(){
 }
 function refreshButton(){
  return button("Refresh","refresh","button",()=>{say();void loadCare();});
+}
+function dayProgress(){
+ const total=state.slots.length;
+ if(!total)return null;
+ const done=state.slots.filter(s=>recorded(s.id,state.day)).length;
+ const complete=done===total;
+ return el("section","card day-progress",tile(complete?"check":"history",complete?"green":"purple"),
+   el("div","day-progress-copy",el("h2","",complete?"All scheduled slots recorded":"Today’s progress"),
+      el("p","muted",done+" of "+total+" scheduled slots recorded")),
+   button("View records","history","button",()=>route("records")));
 }
 function render(){
  if(!state.member)return;
@@ -130,6 +150,8 @@ function render(){
  if(state.load==="loading"){root.append(empty("Loading care workspace","Retrieving the schedule and records.","clock"));syncClock();return;}
  if(state.load!=="ready"){root.append(empty("Care information couldn’t load","No new record can be made until the schedule and history load. "+emptyMessage,"shield"));syncClock();return;}
  if(today){
+  const progress=dayProgress();
+  if(progress)root.replaceChildren(head,progress,section);
   if(!state.slots.length){root.append(empty("No medications scheduled","There are no schedule entries for this date."));syncClock();return;}
   const collection=el("div","doses");
   for(const s of [...state.slots].sort((a,b)=>hm(a.time).localeCompare(hm(b.time)))){

@@ -27,14 +27,14 @@ async function run(role){
  const member={id:"self",name:role==="papa"?"Demo Parent":"Demo Nurse",role};
  const slot={id:"slot-a",time:"06:00:00",label:"Morning care",items:[{name:"Fictional A",amount:"2 sample units"}]};
  let history=[],calls=[],recordRequests=[],simulateConflict=false, simulateNetwork=false;
- class TestDate extends Date { constructor(...a){super(...(a.length?a:["2042-08-06T05:01:00Z"]));} }
- const ctx={document:doc,window:{scrollTo(){},addEventListener(){}},URLSearchParams,Intl,Date:TestDate,Set,setInterval(){},fetch:async(url,opts)=>{
+ class TestDate extends Date { constructor(...a){super(...(a.length?a:["2042-08-05T15:01:00Z"]));} }
+ const ctx={document:doc,window:{scrollTo(){},addEventListener(){}},URLSearchParams,Intl,Date:TestDate,Set,performance:{now:()=>0},setInterval(){},fetch:async(url,opts)=>{
   const q=new URL(url,"https://local.invalid").searchParams, a=q.get("action");calls.push({a,day:q.get("date"),headers:opts.headers});
   const res=(out,status=200)=>({ok:status>=200&&status<300,status,json:async()=>out});
   if(a==="login"){const body=JSON.parse(opts.body);assert.equal(body.password,"synthetic-password");assert.equal(opts.headers.Authorization,undefined);return res({accessToken:"synthetic-token"});}
   assert.equal(opts.headers.Authorization,"Bearer synthetic-token");
   if(a==="session")return res({member});
-  if(a==="schedule")return res({slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:[slot]});
+  if(a==="schedule")return res({date:q.get("date")||"2042-08-06",serverNowMs:Date.parse("2042-08-06T05:01:00Z"),slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:[slot]});
   if(a==="history")return res({entries:history});
   if(a==="members"){assert.equal(role,"papa");return res({members:[member,{id:"nurse-other",name:"Another Nurse",role:"nurse"}]});}
   if(a==="record"){
@@ -53,6 +53,9 @@ async function run(role){
  assert.equal(root.password.value,"");
  assert.equal(root["workspace"].hidden,false);
  assert.match(root["workspace"].textContent,/Fictional A/);
+ assert.equal(calls.find(x=>x.a==="schedule").day,null);
+ assert.match(root["workspace"].textContent,/6 Aug 2042/);
+ assert.match(root["workspace"].textContent,/0 of 1 scheduled slots recorded/);
  const dialog=root["record-dialog"];
  function field(id){const e=walk(dialog,n=>n.id===id);assert(e,id);return e;}
  function form(){return walk(dialog,n=>n.tagName==="form");}
@@ -67,7 +70,9 @@ async function run(role){
  assert.equal(recordRequests[0].givenById,role==="papa"?"nurse-other":undefined);
  assert.equal(findText(root["workspace"],"Confirm given"),undefined);
  assert.match(root["workspace"].textContent,/Recorded/);
- routes[1].emit("click");
+ assert.match(root["workspace"].textContent,/All scheduled slots recorded/);
+ assert.match(root["workspace"].textContent,/1 of 1 scheduled slots recorded/);
+ findText(root["workspace"],"View records").emit("click");
  assert.match(root["workspace"].textContent,role==="papa"?/Given by Another Nurse · Logged by Demo Parent/:/Given by Demo Nurse · Logged by Demo Nurse/);
  findText(root["workspace"],"Log past dose").emit("click");await tick();
  field("scheduled-date").value="2042-08-05";field("scheduled-date").emit("change");await tick();
