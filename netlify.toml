@@ -1,5 +1,6 @@
-# Standalone review demo only. Do not point the live care site here.
+# Design review only. Do not merge to the live app.
 [build]
+  command = ""
   publish = "."
 
 [[headers]]
@@ -8,3 +9,6 @@
     X-Robots-Tag = "noindex, nofollow"
     Referrer-Policy = "no-referrer"
     X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy = "connect-src 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'"
