@@ -3,14 +3,14 @@
 const $ = id => document.getElementById(id);
 const state = {
   token:null, member:null, scheduleAdmin:false, members:[], slots:[], rows:[], route:"today",
-  load:"idle", notes:[], noteStatus:"idle", noteDraft:"", noteRetry:null, noteBusy:false, noteRead:0, day:"", version:0, read:0, collapsed:false, uncertain:new Set()
+  load:"idle", notes:[], noteStatus:"idle", noteDraft:"", noteWhen:null, noteRetry:null, noteBusy:false, noteRead:0, day:"", version:0, read:0, collapsed:false, uncertain:new Set()
 };
 const tz = "Asia/Bangkok";
 const dateFmt = new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"});
 const timeFmt = new Intl.DateTimeFormat("en-GB",{timeZone:tz,hour:"2-digit",minute:"2-digit",hourCycle:"h23"});
 const niceDay = new Intl.DateTimeFormat("en-GB",{timeZone:"UTC",weekday:"short",day:"numeric",month:"short",year:"numeric"});
 const showDate = x => /^\d{4}-\d{2}-\d{2}$/.test(x||"") ? niceDay.format(new Date(x+"T12:00:00Z")) : "Unknown date";
-let clockAnchor=null;state.notes=[];state.noteStatus="idle";state.noteDraft="";state.noteRetry=null;state.noteBusy=false;state.noteRead++;
+let clockAnchor=null;state.notes=[];state.noteStatus="idle";state.noteDraft="";state.noteWhen=null;state.noteRetry=null;state.noteBusy=false;state.noteRead++;
 const now = () => {
  const instant=clockAnchor?new Date(clockAnchor.server+Math.max(0,performance.now()-clockAnchor.received)):new Date();
  const p=Object.fromEntries(dateFmt.formatToParts(instant).map(x=>[x.type,x.value]));
@@ -206,6 +206,16 @@ async function loadNotes(){
 }
 function renderNotes(root){
  const form=el("form","card note-form");
+ const current=now(), when=state.noteWhen||{date:current.day,time:current.time};
+ const date=input("date","note-date",when.date),time=input("time","note-time",when.time);
+ date.required=time.required=true;date.max=current.day;
+ date.disabled=time.disabled=state.noteBusy||Boolean(state.noteRetry);
+ const keepWhen=()=>{state.noteWhen={date:date.value,time:time.value};};
+ date.addEventListener("input",keepWhen);time.addEventListener("input",keepWhen);
+ date.addEventListener("change",keepWhen);time.addEventListener("change",keepWhen);
+ const useNow=button("Use current time","clock","button",()=>{
+  const current=now();date.value=current.day;time.value=current.time;keepWhen();
+ });useNow.disabled=date.disabled;
  const field=el("textarea");field.id="care-note";field.maxLength=1000;field.rows=3;field.required=true;
  field.value=state.noteDraft;field.placeholder="What would you like to note?";
  field.readOnly=state.noteBusy||Boolean(state.noteRetry);
@@ -213,22 +223,25 @@ function renderNotes(root){
  const save=el("button","button primary",icon("check"),state.noteBusy?"Saving…":state.noteRetry?"Retry same note":"Save note");
  save.type="submit";save.disabled=state.noteBusy;
  const tip=state.noteRetry?"Save wasn’t confirmed. Retry this same note to avoid a duplicate.":"Notes are saved separately from medication records.";
- form.append(el("h2","","Add a note"),label("Care note","note",field),el("p","muted",tip),save);
+ form.append(el("h2","","Add a note"),label("Care note","note",field),
+   el("div","fields",label("Date (Bangkok)","calendar",date),label("Time (Bangkok)","clock",time)),
+   useNow,el("p","muted",tip),save);
  form.addEventListener("submit",async event=>{
   event.preventDefault();if(state.noteBusy||!state.scheduleAdmin||!field.value.trim())return;
-  const v=state.version, payload=state.noteRetry||{id:crypto.randomUUID(),text:field.value.trim()};
+  const v=state.version, payload=state.noteRetry||{id:crypto.randomUUID(),text:field.value.trim(),date:date.value,time:time.value};
+  state.noteWhen={date:payload.date,time:payload.time};
   state.noteDraft=payload.text;state.noteBusy=true;state.noteRead++;render();
   try{
    const res=await api("add-note",{method:"POST",data:payload});
    if(v!==state.version)return;
    if(res?.note?.id!==payload.id)throw new ApiError(502);
-   state.noteRetry=null;state.noteDraft="";state.noteBusy=false;say("Care note saved.");
+   state.noteRetry=null;state.noteDraft="";state.noteWhen=null;state.noteBusy=false;say("Care note saved.");
    void loadNotes();
   }catch(ex){
    if(v!==state.version)return;
    if(ex.status===401){signout("Your session expired. Sign in again.");return;}
    state.noteBusy=false;state.noteRetry=ex.status===0||ex.status>=500?payload:null;
-   say(state.noteRetry?"The save could not be confirmed.":"Note not saved. Check the text and try again.",true);
+   say(state.noteRetry?"The save could not be confirmed.":"Note not saved. Check the text, date and Bangkok time.",true);
    if(state.route==="notes")render();
   }
  });
@@ -237,7 +250,8 @@ function renderNotes(root){
  else if(state.noteStatus==="error")list.append(empty("Notes could not load","Use Refresh notes to try again.","note"));
  else if(!state.notes.length)list.append(empty("No care notes yet","Your notes will appear here.","note"));
  else for(const item of state.notes)list.append(el("article","card entry",tile("note"),el("div","",
-   el("p","meta","Saved "+noteStamp(item.createdAt)),el("p","entry-note",item.text))));
+   el("p","meta",(item.occurredAt?"Happened ":"Saved ")+noteStamp(item.occurredAt||item.createdAt)),el("p","entry-note",item.text),
+   item.occurredAt?el("small","muted","Saved "+noteStamp(item.createdAt)):null)));
  root.replaceChildren(hero("Care Notes","Daily updates and observations"),form,
    el("div","section-head",el("h2","","Saved notes"),button("Refresh notes","refresh","button",()=>void loadNotes())),list);
  syncClock();

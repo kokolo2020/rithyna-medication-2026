@@ -38,7 +38,7 @@ async function run(role){
   assert.equal(opts.headers.Authorization,"Bearer synthetic-token");
   if(a==="session")return res({member,scheduleAdmin:role==="papa"});
   if(a==="notes"){assert.equal(role,"papa");return res({notes});}
-  if(a==="add-note"){assert.equal(role,"papa");const saved={...JSON.parse(opts.body),createdAt:"2042-08-06T05:02:00Z"};notes=[saved];return res({note:saved},201);}
+  if(a==="add-note"){assert.equal(role,"papa");const saved={...JSON.parse(opts.body),createdAt:"2042-08-06T18:02:00Z",occurredAt:JSON.parse(opts.body).date==="2042-08-06"&&JSON.parse(opts.body).time==="12:02"?"2042-08-06T05:02:00Z":undefined};notes=[saved];return res({note:saved},201);}
   if(a==="schedule")return res({date:q.get("date")||serverDay,serverNowMs:Date.parse(server),slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:[slot]});
   if(a==="history")return res({entries:history});
   if(a==="members"){assert.equal(role,"papa");return res({members:[member,{id:"nurse-other",name:"Another Nurse",role:"nurse"}]});}
@@ -114,9 +114,13 @@ async function run(role){
    routes[2].emit("click");await tick();
    assert.match(root.workspace.textContent,/Care Notes/);
    const box=walk(root.workspace,n=>n.id==="care-note");box.value="Synthetic care note";box.emit("input");
+   const eventDate=walk(root.workspace,n=>n.id==="note-date"),eventTime=walk(root.workspace,n=>n.id==="note-time");
+   assert.equal(eventDate.value,"2042-08-07");
+   eventDate.value="2042-08-06";eventTime.value="12:02";
+   eventDate.emit("change");eventTime.emit("change");
    await walk(root.workspace,n=>n.tagName==="form").emit("submit");await tick();
    assert.match(root.workspace.textContent,/Synthetic care note/);
-   assert.match(root.workspace.textContent,/12:02/);
+   assert.match(root.workspace.textContent,/Happened.*12:02/);
  } else {
    routes[2].emit("click");assert(!calls.some(x=>x.a==="notes"));
  }

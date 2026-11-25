@@ -158,20 +158,26 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
       if (action === "session") return respond(200, lookup.scheduleAdmin ? {member:actor,scheduleAdmin:true} : {member:actor});
       if (action === "notes" || action === "add-note") {
         if (!liveOwner || actor.id!==liveOwner.id) return forbidden();
-        const publicNote = row => ({id:row.id,text:row.body,createdAt:row.created_at});
+        const publicNote = row => ({id:row.id,text:row.body,createdAt:row.created_at,occurredAt:row.occurred_at ?? null});
         if (action === "notes") {
-          const r=await upstream("/rest/v1/care_notes?select=id,body,created_at&order=created_at.desc,id.desc&limit=200",{token});
+          const r=await upstream("/rest/v1/care_notes?select=id,body,created_at,occurred_at&order=created_at.desc,id.desc&limit=200",{token});
           if (!r.ok || !Array.isArray(r.data)) return unavailable();
           return respond(200,{notes:r.data.map(publicNote)});
         }
-        const {id,text}=await readBody(request)||{};
+        const {id,text,date,time}=await readBody(request)||{};
         if (typeof id!=="string" || !UUID.test(id) || typeof text!=="string" || !text.trim() || Array.from(text.trim()).length>1000)
           return bodyInvalid("Enter a note of up to 1,000 characters.");
-        const r=await upstream("/rest/v1/care_notes?select=id,body,created_at",{token,body:{id,body:text.trim()},prefer:"return=representation"});
+        let occurredAt=null;
+        if(date!==undefined || time!==undefined){
+          if(!realDate(date)||typeof time!=="string"||!TIME.test(time))return bodyInvalid("Enter the Bangkok date and time.");
+          occurredAt=Date.parse(date+"T"+time+":00+07:00");
+          if(!Number.isFinite(occurredAt)||occurredAt>clock())return bodyInvalid("Choose a time that has already passed in Bangkok.");
+        }
+        const r=await upstream("/rest/v1/care_notes?select=id,body,created_at,occurred_at",{token,body:{id,body:text.trim(),occurred_at:occurredAt===null?null:new Date(occurredAt).toISOString()},prefer:"return=representation"});
         if (r.ok && r.data?.[0]?.id===id) return respond(201,{note:publicNote(r.data[0])});
         if (r.data?.code==="23505") {
-          const existing=await upstream("/rest/v1/care_notes?select=id,body,created_at&id=eq."+id,{token});
-          if(existing.ok && existing.data?.[0]?.body===text.trim())return respond(200,{note:publicNote(existing.data[0])});
+          const existing=await upstream("/rest/v1/care_notes?select=id,body,created_at,occurred_at&id=eq."+id,{token});
+          if(existing.ok && existing.data?.[0]?.body===text.trim() && (existing.data[0].occurred_at ? Date.parse(existing.data[0].occurred_at) : null)===occurredAt)return respond(200,{note:publicNote(existing.data[0])});
           return fail(409,"That note could not be confirmed.","note_conflict");
         }
         if(r.status===401)return unauthenticated();
