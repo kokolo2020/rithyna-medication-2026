@@ -4,7 +4,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ROLE = new Set(["papa", "nurse"]);
 const METHODS = new Map([
   ["login", "POST"], ["session", "GET"], ["schedule", "GET"],
-  ["history", "GET"], ["record", "POST"], ["members", "GET"]
+  ["history", "GET"], ["record", "POST"], ["members", "GET"], ["manage", "POST"]
 ]);
 const BANGKOK_DAY = new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"});
 const bangkokDay = (instant) => {
@@ -90,7 +90,7 @@ async function readBody(request) {
   } catch { return null; }
 }
 
-export function createHandler({env = process.env, transport = fetch, demoNames = false, clock = Date.now} = {}) {
+export function createHandler({env = process.env, transport = fetch, demoNames = false, liveOwner = null, clock = Date.now} = {}) {
   return async function careApi(request) {
     const url = new URL(request.url);
     const action = url.searchParams.get("action") || "";
@@ -121,7 +121,8 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
       if (!memberships.ok || !Array.isArray(memberships.data)) return {error:unavailable()};
       const actor = member(memberships.data[0]);
       if (!actor || actor.id.toLowerCase() !== validated.data.id.toLowerCase()) return {error:forbidden()};
-      return {actor};
+      if(liveOwner && actor.id!==liveOwner.id) return {error:forbidden()};
+      return {actor, scheduleAdmin: Boolean(liveOwner && actor.role==="papa" && validated.data.app_metadata?.icare_schedule_admin===true)};
     };
     const bodyInvalid = error => fail(400, error, "invalid_request");
 
@@ -130,8 +131,8 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
         const body = await readBody(request);
         const byName = typeof body?.name === "string";
         const password = body?.password;
-        if (byName && (!demoNames || body.name.trim().toLowerCase()!=="papa" || typeof password!=="string" || !/^[0-9]{15}$/.test(password))) return unauthenticated();
-        const email = byName ? "icare-papa-pilot@example.com" : typeof body?.email === "string" ? body.email.trim() : "";
+        if (byName && (!(demoNames || liveOwner) || body.name.trim().toLowerCase()!=="papa" || typeof password!=="string" || !/^[0-9]{15}$/.test(password))) return unauthenticated();
+        const email = byName ? (liveOwner?.email || "icare-papa-pilot@example.com") : typeof body?.email === "string" ? body.email.trim() : "";
         if (!/^[^\s@]+@[^\s@]+$/.test(email) || email.length > 254 || typeof password !== "string" || !password.length || password.length > 1024) {
           return bodyInvalid("Enter a valid email and password.");
         }
@@ -153,7 +154,27 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
       if (lookup.error) return lookup.error;
       const actor = lookup.actor;
 
-      if (action === "session") return respond(200, {member:actor});
+      if (action === "session") return respond(200, lookup.scheduleAdmin ? {member:actor,scheduleAdmin:true} : {member:actor});
+      if (action === "manage") {
+        if (!lookup.scheduleAdmin) return forbidden();
+        const b=await readBody(request), {change,id,time,label,items}=b||{};
+        if (!["add","edit","remove"].includes(change) ||
+          (change==="add" ? id!=null : typeof id!=="string" || !UUID.test(id)) ||
+          (change!=="remove" && (typeof time!=="string" || !TIME.test(time) || typeof label!=="string" ||
+            label.trim().length<1 || label.trim().length>120 || !Array.isArray(items) || items.length<1 || items.length>24 ||
+            !items.every(i=>i && ["name","amount"].every(k=>typeof i[k]==="string" && i[k].trim().length>0 && i[k].trim().length<=120))))) {
+          return bodyInvalid("Check the schedule time and medication details.");
+        }
+        const r=await upstream("/rest/v1/rpc/care_manage_slot",{token,body:{
+          p_action:change,p_slot_id:id??null,p_time:change==="remove"?null:time,
+          p_label:change==="remove"?null:label.trim(),p_items:change==="remove"?null:items.map(i=>({name:i.name.trim(),amount:i.amount.trim()}))
+        }});
+        if (r.ok && realDate(r.data)) return respond(200,{effectiveDate:r.data});
+        if (r.status===401) return unauthenticated();
+        if (r.status===403 || r.data?.code==="42501") return forbidden();
+        if (["23P01","22023"].includes(r.data?.code)) return fail(409,"That time already exists or the schedule changed. Refresh and review.","schedule_conflict");
+        return unavailable();
+      }
       if (action === "members") {
         if (actor.role !== "papa") return forbidden();
         const result = await upstream("/rest/v1/care_members?active=eq.true&select=user_id,display_name,role&order=display_name.asc", {token});
@@ -232,4 +253,18 @@ export function createPilotHandler({env = process.env, transport = fetch} = {}) 
   };
 }
 
-export default createPilotHandler();
+// A Papa-only live workspace must be configured explicitly. Otherwise fail closed.
+export function createLiveHandler({env=process.env,transport=fetch}={}) {
+  const id=env.ICARE_LIVE_OWNER_ID,email=env.ICARE_LIVE_OWNER_LOGIN;
+  const url=env.ICARE_LIVE_ORIGIN;
+  const db=env.ICARE_LIVE_SUPABASE_URL,key=env.ICARE_LIVE_SUPABASE_PUBLISHABLE_KEY;
+  return async request=>{
+    if (!UUID.test(id||"") || !/^[^\s@]+@[^\s@]+$/.test(email||"") ||
+        new URL(request.url).protocol!=="https:" || url!==new URL(request.url).origin ||
+        url==="https://icare-isolated-lab.netlify.app" || !db || !key) return unavailable();
+    return createHandler({transport,liveOwner:{id,email},env:{SUPABASE_URL:db,SUPABASE_ANON_KEY:key}})(request);
+  };
+}
+
+const pilot=createPilotHandler(),live=createLiveHandler();
+export default request=>process.env.ICARE_LIVE_ORIGIN===new URL(request.url).origin?live(request):pilot(request);

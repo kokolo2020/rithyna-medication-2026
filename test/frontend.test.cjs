@@ -23,10 +23,12 @@ const tick=()=>new Promise(r=>setImmediate(r));
 async function run(role){
  const root=Object.fromEntries(list.map(id=>[id,new Node("div")]));
  const routes=["today","records"].map(route=>{const n=new Node("button");n.dataset.route=route;return n;});
- const doc={getElementById:id=>root[id],createElement:t=>new Node(t),createTextNode:t=>new Node("#text",t),createElementNS:(_,t)=>new Node(t),querySelector:()=>null,querySelectorAll:()=>routes};
+ const listeners={};
+ const doc={visibilityState:"visible",addEventListener:(name,fn)=>{listeners[name]=fn;},getElementById:id=>root[id],createElement:t=>new Node(t),createTextNode:t=>new Node("#text",t),createElementNS:(_,t)=>new Node(t),querySelector:()=>null,querySelectorAll:()=>routes};
  const member={id:"self",name:role==="papa"?"Demo Parent":"Demo Nurse",role};
  const slot={id:"slot-a",time:"06:00:00",label:"Morning care",items:[{name:"Fictional A",amount:"2 sample units"}]};
  let history=[],calls=[],recordRequests=[],simulateConflict=false, simulateNetwork=false;
+ let server="2042-08-06T05:01:00Z",serverDay="2042-08-06";
  class TestDate extends Date { constructor(...a){super(...(a.length?a:["2042-08-05T15:01:00Z"]));} }
  const ctx={document:doc,window:{scrollTo(){},addEventListener(){}},URLSearchParams,Intl,Date:TestDate,Set,performance:{now:()=>0},setInterval(){},fetch:async(url,opts)=>{
   const q=new URL(url,"https://local.invalid").searchParams, a=q.get("action");calls.push({a,day:q.get("date"),headers:opts.headers});
@@ -34,7 +36,7 @@ async function run(role){
   if(a==="login"){const body=JSON.parse(opts.body);assert.equal(body.password,"synthetic-password");assert.equal(opts.headers.Authorization,undefined);return res({accessToken:"synthetic-token"});}
   assert.equal(opts.headers.Authorization,"Bearer synthetic-token");
   if(a==="session")return res({member});
-  if(a==="schedule")return res({date:q.get("date")||"2042-08-06",serverNowMs:Date.parse("2042-08-06T05:01:00Z"),slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:[slot]});
+  if(a==="schedule")return res({date:q.get("date")||serverDay,serverNowMs:Date.parse(server),slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:[slot]});
   if(a==="history")return res({entries:history});
   if(a==="members"){assert.equal(role,"papa");return res({members:[member,{id:"nurse-other",name:"Another Nurse",role:"nurse"}]});}
   if(a==="record"){
@@ -75,7 +77,10 @@ async function run(role){
  findText(root["workspace"],"View records").emit("click");
  assert.match(root["workspace"].textContent,role==="papa"?/Given by Another Nurse · Logged by Demo Parent/:/Given by Demo Nurse · Logged by Demo Nurse/);
  findText(root["workspace"],"Log past dose").emit("click");await tick();
+ assert.equal(field("actual-date").value,"");
+ field("actual-date").value="2042-08-06";
  field("scheduled-date").value="2042-08-05";field("scheduled-date").emit("change");await tick();
+ assert.equal(field("actual-date").value,"2042-08-06");
  assert.equal(calls.filter(x=>x.a==="schedule").at(-1).day,"2042-08-05");
  field("scheduled-slot").value="historic-a";field("scheduled-slot").emit("change");
  field("actual-date").value="2042-08-06";field("actual-time").value="01:02";field("given-confirmed").checked=true;
@@ -89,6 +94,18 @@ async function run(role){
  field("scheduled-slot").value="historic-a";field("scheduled-slot").emit("change");
  assert.equal(findText(dialog,"Save given record").disabled,true);
  await form().emit("submit");assert.equal(recordRequests.length,2);
+ const scheduledReads=()=>calls.filter(x=>x.a==="schedule"&&x.day===null).length;
+ const before=scheduledReads();
+ doc.visibilityState="hidden";listeners.visibilitychange();
+ assert.equal(scheduledReads(),before);
+ // Simulate sleep through Bangkok midnight: the browser monotonic clock remains at 0.
+ server="2042-08-06T17:05:00Z";serverDay="2042-08-07";
+ doc.visibilityState="visible";listeners.visibilitychange();await tick();
+ assert.equal(scheduledReads(),before+1);
+ routes[0].emit("click");
+ assert.match(root["workspace"].textContent,/7 Aug 2042/);
+ assert.equal(dialog.open,true);
+ assert.equal(field("scheduled-date").value,"2042-08-05");
  findText(root["session-nav"],"","button").emit("click");
  assert.equal(root["workspace"].hidden,true);
  assert.equal(root["workspace"].textContent,"");

@@ -14,3 +14,5 @@ label{display:block;font-size:.88rem;font-weight:700}input,select,textarea{font:
 .day-progress-copy p{margin-top:.2rem}
 .day-progress .button{white-space:nowrap;justify-self:end}
 @media(max-width:440px){.day-progress{grid-template-columns:auto minmax(0,1fr)}.day-progress .button{grid-column:2;justify-self:start}}
+.schedule-items{display:grid;gap:8px}.schedule-item{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;padding:10px}
+@media(max-width:520px){.schedule-item{grid-template-columns:1fr}}

@@ -2,7 +2,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const state = {
-  token:null, member:null, members:[], slots:[], rows:[], route:"today",
+  token:null, member:null, scheduleAdmin:false, members:[], slots:[], rows:[], route:"today",
   load:"idle", day:"", version:0, read:0, collapsed:false, uncertain:new Set()
 };
 const tz = "Asia/Bangkok";
@@ -57,7 +57,7 @@ async function api(action,{method="GET",data,token=state.token,date}={}) {
 }
 function signout(message="") {
  clockAnchor=null;
- state.version++;state.read++;state.token=null;state.member=null;state.members=[];state.slots=[];state.rows=[];state.route="today";state.load="idle";state.day="";state.uncertain=new Set();
+ state.version++;state.read++;state.token=null;state.member=null;state.scheduleAdmin=false;state.members=[];state.slots=[];state.rows=[];state.route="today";state.load="idle";state.day="";state.uncertain=new Set();
  if($("record-dialog").open)$("record-dialog").close();
  $("record-dialog").replaceChildren();$("workspace").replaceChildren();$("password").value="";
  $("login-error").textContent="";$("login-error").hidden=true;
@@ -93,6 +93,9 @@ async function loadCare({silent=false}={}){
    throw new ApiError(502,"invalid_response");
   clockAnchor={server:serverNowMs,received:s.received};
   state.slots=dataShape(s.data,"slots");state.rows=dataShape(h,"entries");state.members=dataShape(m,"members");state.day=date;state.load="ready";
+  if($("record-dialog").open)for(const id of ["scheduled-date","actual-date"]){
+   const field=$(id);if(field)field.max=date;
+  }
   for(const row of state.rows)state.uncertain.delete(requestKey(row.slotId,row.scheduledDate));
   render();return true;
  }catch(e){
@@ -114,7 +117,7 @@ function status(given,text=""){
 function hero(title,description){
  const t=el("strong","","");
  t.dataset.liveClock="true";
- return el("div","hero",el("div","",el("span","eyebrow","ICARE · TEST WORKSPACE"),el("h1","",title),el("p","",description)),
+ return el("div","hero",el("div","",el("span","eyebrow",state.scheduleAdmin?"ICARE · PRIVATE WORKSPACE":"ICARE · TEST WORKSPACE"),el("h1","",title),el("p","",description)),
    el("div","clock",icon("clock"),el("div","",el("small","","Bangkok time"),t)));
 }
 function syncClock(){
@@ -144,6 +147,7 @@ function render(){
  const caption=el("div","",el("h2","",today?"Medication schedule":"Administration log"),
   today?el("small","","Not recorded does not mean not given."):null);
  const actions=el("div","hero-inline",refreshButton());
+ if(today&&state.load==="ready"&&state.scheduleAdmin)actions.prepend(button("Add time","plus","button primary",()=>manageSlot()));
  if(!today&&state.load==="ready")actions.prepend(button("Log past dose","plus","button primary",()=>openRecord()));
  const section=el("div","section-head",caption,actions);
  root.replaceChildren(head,section);
@@ -162,6 +166,7 @@ function render(){
    const hasItems=Array.isArray(s.items)&&s.items.length>0;
    const a=el("div","actions",status(!!entry,unknown&&!entry?"Check status":""));
    if(!entry&&!unknown&&hasItems) a.append(button("Confirm given","check","button primary",()=>openRecord(s)));
+   if(state.scheduleAdmin) a.append(button("Edit","note","button",()=>manageSlot(s)),button("Remove","", "button",()=>manageSlot(s,true)));
    collection.append(el("article","card dose",tile(entry?"check":"pill",entry?"green":"coral"),details,a));
   }
   root.append(collection);
@@ -179,6 +184,51 @@ function render(){
  syncClock();
 }
 
+function manageSlot(existing,remove=false){
+ if(!state.scheduleAdmin||state.load!=="ready"||$("record-dialog").open)return;
+ const dialog=$("record-dialog"),version=state.version;
+ const title=el("h2","",remove?"Remove schedule time":existing?"Edit schedule time":"Add schedule time");title.id="record-title";
+ const form=el("form"),list=el("div","schedule-items"),feedback=el("p","error");
+ feedback.setAttribute("role","alert");
+ const time=input("time","setup-time",hm(existing?.time)), name=input("text","setup-label",existing?.label||"");
+ time.required=true;name.required=true;name.maxLength=120;
+ const pairs=[];
+ function addItem(item={}){
+  if(pairs.length>=24)return;
+  const row=el("div","card schedule-item"),n=input("text",""),a=input("text","");
+  n.value=item.name||"";a.value=item.amount||"";n.required=true;a.required=true;n.maxLength=a.maxLength=120;
+  n.setAttribute("aria-label","Medication name");a.setAttribute("aria-label","Amount exactly as prescribed");
+  n.placeholder="Medication name";a.placeholder="Amount exactly as prescribed";
+  const pair={n,a};pairs.push(pair);
+  row.append(n,a,button("Remove item",null,"button",()=>{pairs.splice(pairs.indexOf(pair),1);row.remove();}));
+  list.append(row);
+ }
+ form.append(title,el("p","muted",remove?"Stop this schedule time from tomorrow (Bangkok time). Past records stay unchanged.":existing?"Changes take effect tomorrow (Bangkok time). Past records stay unchanged.":"Check the medication and amount against the actual care instructions before saving."));
+ if(!remove){
+  form.append(el("div","fields",label("Bangkok time","clock",time),label("Schedule label","note",name)),list,button("Add medication", "plus","button",()=>addItem()));
+  for(const item of existing?.items||[{}])addItem(item);
+ }else form.append(el("p","",hm(existing.time)+" · "+existing.label));
+ const save=el("button","button primary",remove?"Remove from schedule":"Save schedule time");save.type="submit";
+ const cancel=button("Cancel",null,"button",()=>dialog.close());
+ form.append(feedback,el("div","actions",cancel,save));dialog.replaceChildren(form);dialog.showModal();
+ let busy=false;
+ dialog.oncancel=e=>{if(busy)e.preventDefault();};
+ form.addEventListener("submit",async e=>{
+  e.preventDefault();if(busy||state.load!=="ready"||!state.scheduleAdmin||version!==state.version)return;
+  if(!remove&&!pairs.length){feedback.textContent="Add at least one medication.";return;}
+  busy=true;save.disabled=true;cancel.disabled=true;
+  try{
+   const result=await api("manage",{method:"POST",data:{id:existing?.id,change:remove?"remove":existing?"edit":"add",time:time.value,label:name.value,items:pairs.map(({n,a})=>({name:n.value,amount:a.value}))}});
+   if(version!==state.version)return;
+   dialog.close();dialog.replaceChildren();say("Schedule change saved. Effective "+showDate(result.effectiveDate)+" (Bangkok).");void loadCare();
+  }catch(ex){
+   if(version!==state.version)return;
+   if(ex.status===401){signout("Your session expired. Sign in again.");return;}
+   feedback.textContent=ex.status===409?"That time already exists or was changed. Close this form, refresh, and review.":"The change was not confirmed. Close this form and refresh before trying again.";
+  }finally{busy=false;if(dialog.open){cancel.disabled=false;}}
+ });
+}
+
 function openRecord(initialSlot){
  const dialog=$("record-dialog");
  if(dialog.open||!state.member||state.load!=="ready")return;
@@ -192,7 +242,7 @@ function openRecord(initialSlot){
  const notice=el("p","muted","");
  notice.setAttribute("aria-live","polite");
  const sample=el("div","");
- const actualDate=input("date","actual-date",current.day);actualDate.max=current.day;actualDate.required=true;
+ const actualDate=input("date","actual-date",asPast?"":current.day);actualDate.max=current.day;actualDate.required=true;
  const actualTime=input("time","actual-time");actualTime.required=true;
  const note=el("textarea");note.id="dose-note";note.maxLength=500;note.rows=2;
  const checked=input("checkbox","given-confirmed");
@@ -241,11 +291,12 @@ function openRecord(initialSlot){
    notice.textContent="Couldn’t load this date’s schedule. Close this form and try again.";
   }
  }
- schedDate.addEventListener("change",()=>{err();actualDate.value=schedDate.value;void loadSlots();});
- slot.addEventListener("change",()=>{err();updatePreview();});
+ schedDate.addEventListener("change",()=>{checked.checked=false;err();void loadSlots();});
+ slot.addEventListener("change",()=>{checked.checked=false;err();updatePreview();});
  dialog.oncancel=e=>{if(busy)e.preventDefault();};
  form.addEventListener("submit",async e=>{
   e.preventDefault();if(busy||noRetry||v!==state.version)return;
+  if(state.load!=="ready"){err("Wait for the Bangkok schedule to refresh before saving.");return;}
   const selected=choices.find(s=>String(s.id)===slot.value);
   const day=schedDate.value,atDay=actualDate.value,atTime=hm(actualTime.value),n=now();
   if(!selected||!day||!atDay||!atTime){err("Choose the dose and enter the actual date and time it was given.");return;}
@@ -300,7 +351,7 @@ $("login-form").addEventListener("submit",async e=>{
   const session=await api("session",{token:auth.accessToken});
   if(v!==state.version)return;
   if(!session.member?.id||!session.member?.name||!["papa","nurse"].includes(session.member.role))throw new ApiError(403);
-  state.token=auth.accessToken;state.member=session.member;state.route="today";
+  state.token=auth.accessToken;state.member=session.member;state.scheduleAdmin=session.scheduleAdmin===true&&session.member.role==="papa";state.route="today";
   $("email").value="";say();shell();void loadCare();
  }catch(ex){
   if(v!==state.version)return;
@@ -316,6 +367,9 @@ setInterval(()=>{
  syncClock();
  if(state.member&&state.load==="ready"&&state.day!==now().day&&!$("record-dialog").open)void loadCare();
 },15000);
+document.addEventListener("visibilitychange",()=>{
+ if(state.member&&document.visibilityState==="visible")void loadCare();
+});
 window.addEventListener("pagehide",()=>{if(state.member)signout();});
 window.addEventListener("pageshow",event=>{if(event.persisted&&state.member)signout();});
 shell();

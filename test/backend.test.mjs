@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {createHandler, createPilotHandler} from "../netlify/functions/care-api.mjs";
+import {createHandler, createPilotHandler, createLiveHandler} from "../netlify/functions/care-api.mjs";
 
 const api = "https://ui.invalid/.netlify/functions/care-api?action=";
 const cfg = {SUPABASE_URL:"https://db.invalid", SUPABASE_ANON_KEY:"sb_publishable_fixture"};
@@ -204,4 +204,29 @@ test("fictional Papa name is accepted only in the explicit lab mode and only for
  for(const [demoNames,attempt] of [[false,body],[true,{...body,password:"9999"}],[true,{...body,name:"Other"}]]){
    assert.equal((await createHandler({env:cfg,transport:()=>assert.fail("must not reach auth"),demoNames})(req("login",{body:attempt}))).status,401);
  }
+});
+
+test("live schedule setup is limited to the configured parent with an admin claim",async()=>{
+ const owner={id:a,email:"owner@example.invalid"};
+ const body={change:"add",time:"14:00",label:" Synthetic ",items:[{name:" Sample ",amount:" 1 unit ",ignored:true}]};
+ let calls=[],actorId=a,role="papa",admin=true;
+ const transport=async(url,opts)=>{
+  calls.push({url,opts});
+  if(url.includes("/auth/v1/user"))return json({id:actorId,app_metadata:{icare_schedule_admin:admin}});
+  if(url.includes("care_members"))return json([{user_id:actorId,display_name:"Synthetic person",role}]);
+  return json("2026-11-25");
+ };
+ const handler=createLiveHandler({transport,env:{
+  ICARE_LIVE_ORIGIN:"https://ui.invalid",ICARE_LIVE_OWNER_ID:owner.id,ICARE_LIVE_OWNER_LOGIN:owner.email,
+  ICARE_LIVE_SUPABASE_URL:cfg.SUPABASE_URL,ICARE_LIVE_SUPABASE_PUBLISHABLE_KEY:cfg.SUPABASE_ANON_KEY}});
+ let r=await handler(req("manage",{body}));
+ assert.equal(r.status,200);assert.deepEqual(await r.json(),{effectiveDate:"2026-11-25"});
+ assert.match(calls.at(-1).url,/\/rpc\/care_manage_slot$/);
+ assert.deepEqual(JSON.parse(calls.at(-1).opts.body).p_items,[{name:"Sample",amount:"1 unit"}]);
+ const baseline=calls.filter(c=>c.url.includes("/rpc/")).length;
+ for(const change of [{actorId:b,role:"papa",admin:true},{actorId:a,role:"nurse",admin:true},{actorId:a,role:"papa",admin:false}]){
+  ({actorId,role,admin}=change);r=await handler(req("manage",{body}));assert.equal(r.status,403);
+ }
+ assert.equal(calls.filter(c=>c.url.includes("/rpc/")).length,baseline);
+ assert.equal((await handler(new Request(req("session").url.replace("ui.invalid","other.invalid")))).status,503);
 });

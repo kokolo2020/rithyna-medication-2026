@@ -10,5 +10,11 @@ for (const [folder, allowed] of [['',new Set(['assets','index.html'])],['assets/
     }
   }
 }
-for (const name of assets) await writeFile(new URL(name,output),await readFile(new URL(name,root)));
+for(const name of assets){
+  let content=await readFile(new URL(name,root),"utf8");
+  if(name==="index.html" && process.env.ICARE_BUILD_LIVE==="true")content=content
+    .replace("iCare · Sign-in test","iCare · Private care workspace")
+    .replace("Test workspace only. Use your test name and PIN. Do not enter real care information.","Sign in with your private name and PIN. Automatic reminders are not enabled.");
+  await writeFile(new URL(name,output),content);
+}
 console.log('Static assets prepared. Server code, schema and tests are not in public output.');
