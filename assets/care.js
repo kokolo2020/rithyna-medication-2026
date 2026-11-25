@@ -269,7 +269,7 @@ $("login-form").addEventListener("submit",async e=>{
  if(submit.disabled)return;
  const v=++state.version;
  err.hidden=true;submit.disabled=true;submit.textContent="Signing in…";
- const request={email:$("email").value.trim(),password:pwd.value};pwd.value="";
+ const request={name:$("email").value.trim(),password:pwd.value};pwd.value="";
  try{
   const auth=await api("login",{method:"POST",data:request,token:null});
   request.password="";
@@ -282,7 +282,7 @@ $("login-form").addEventListener("submit",async e=>{
   $("email").value="";say();shell();void loadCare();
  }catch(ex){
   if(v!==state.version)return;
-  err.textContent=ex.status===401?"Email or password wasn’t accepted.":ex.status===403?"This account does not have care-team access.":"Sign-in is unavailable. Try again or contact your care-team administrator.";
+  err.textContent=ex.status===401?"Name or PIN wasn’t accepted.":ex.status===403?"This account does not have care-team access.":"Sign-in is unavailable. Try again or contact your care-team administrator.";
   err.hidden=false;
  }finally{
   request.password="";submit.disabled=false;submit.textContent="Sign in";

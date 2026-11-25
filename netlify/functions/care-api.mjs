@@ -90,7 +90,7 @@ async function readBody(request) {
   } catch { return null; }
 }
 
-export function createHandler({env = process.env, transport = fetch} = {}) {
+export function createHandler({env = process.env, transport = fetch, demoNames = false} = {}) {
   return async function careApi(request) {
     const url = new URL(request.url);
     const action = url.searchParams.get("action") || "";
@@ -128,8 +128,10 @@ export function createHandler({env = process.env, transport = fetch} = {}) {
     try {
       if (action === "login") {
         const body = await readBody(request);
-        const email = typeof body?.email === "string" ? body.email.trim() : "";
+        const byName = typeof body?.name === "string";
         const password = body?.password;
+        if (byName && (!demoNames || body.name.trim().toLowerCase()!=="papa" || typeof password!=="string" || !/^[0-9]{15}$/.test(password))) return unauthenticated();
+        const email = byName ? "icare-papa-pilot@example.com" : typeof body?.email === "string" ? body.email.trim() : "";
         if (!/^[^\s@]+@[^\s@]+$/.test(email) || email.length > 254 || typeof password !== "string" || !password.length || password.length > 1024) {
           return bodyInvalid("Enter a valid email and password.");
         }
@@ -140,6 +142,7 @@ export function createHandler({env = process.env, transport = fetch} = {}) {
         const accessToken = authn.data.access_token;
         const lookup = await getActor(accessToken);
         if (lookup.error) return lookup.error;
+        if (byName && lookup.actor.role!=="papa") return unauthenticated();
         return respond(200, {accessToken});
       }
 
@@ -221,7 +224,7 @@ export function createPilotHandler({env = process.env, transport = fetch} = {}) 
     try { allowed = new URL(env.ICARE_PILOT_ORIGIN); } catch { return unavailable(); }
     if (allowed.protocol !== "https:" || allowed.origin !== env.ICARE_PILOT_ORIGIN ||
         allowed.origin !== new URL(request.url).origin) return unavailable();
-    return createHandler({transport, env:{
+    return createHandler({transport, demoNames:allowed.origin==="https://icare-isolated-lab.netlify.app", env:{
       SUPABASE_URL:env.ICARE_PILOT_SUPABASE_URL,
       SUPABASE_ANON_KEY:env.ICARE_PILOT_SUPABASE_PUBLISHABLE_KEY
     }})(request);

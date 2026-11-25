@@ -172,3 +172,19 @@ test("pilot only accepts its exact origin and ignores legacy environment variabl
   assert.equal((await createPilotHandler({env:pilot,transport:offline})(other)).status,503);
   assert.equal((await createPilotHandler({env:pilot,transport:offline})(original)).status,401);
 });
+
+test("fictional Papa name is accepted only in the explicit lab mode and only for a parent",async()=>{
+ const body={name:" Papa ",password:"327109521647904"};
+ let seen;
+ const transport=async(url,opts)=>{
+  if(url.includes("/auth/v1/token")){seen=JSON.parse(opts.body);return json({access_token:"fixture"});}
+  if(url.includes("/auth/v1/user"))return json({id:a});
+  return json([member("papa")]);
+ };
+ const r=await createHandler({env:cfg,transport,demoNames:true})(req("login",{body}));
+ assert.equal(r.status,200);
+ assert.equal(seen.email,"icare-papa-pilot@example.com");
+ for(const [demoNames,attempt] of [[false,body],[true,{...body,password:"9999"}],[true,{...body,name:"Other"}]]){
+   assert.equal((await createHandler({env:cfg,transport:()=>assert.fail("must not reach auth"),demoNames})(req("login",{body:attempt}))).status,401);
+ }
+});
