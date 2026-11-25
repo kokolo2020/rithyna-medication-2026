@@ -30,6 +30,8 @@ try {
     grant usage on schema auth to anon, authenticated;
   `);
   await db.exec(await readFile(new URL('schema.sql',repo),'utf8'));
+  await db.exec(await readFile(new URL('care-notes.sql',repo),'utf8'));
+  await db.exec(await readFile(new URL('test/care-notes-smoke.sql',repo),'utf8'));
   await db.exec(await readFile(new URL('schedule-admin.sql',repo),'utf8'));
   await db.exec(await readFile(new URL('test/schedule-admin-smoke.sql',repo),'utf8'));
   const raw = await readFile(new URL('test/db-smoke.sql',repo),'utf8');

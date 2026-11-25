@@ -3,14 +3,14 @@
 const $ = id => document.getElementById(id);
 const state = {
   token:null, member:null, scheduleAdmin:false, members:[], slots:[], rows:[], route:"today",
-  load:"idle", day:"", version:0, read:0, collapsed:false, uncertain:new Set()
+  load:"idle", notes:[], noteStatus:"idle", noteDraft:"", noteRetry:null, noteBusy:false, noteRead:0, day:"", version:0, read:0, collapsed:false, uncertain:new Set()
 };
 const tz = "Asia/Bangkok";
 const dateFmt = new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"});
 const timeFmt = new Intl.DateTimeFormat("en-GB",{timeZone:tz,hour:"2-digit",minute:"2-digit",hourCycle:"h23"});
 const niceDay = new Intl.DateTimeFormat("en-GB",{timeZone:"UTC",weekday:"short",day:"numeric",month:"short",year:"numeric"});
 const showDate = x => /^\d{4}-\d{2}-\d{2}$/.test(x||"") ? niceDay.format(new Date(x+"T12:00:00Z")) : "Unknown date";
-let clockAnchor=null;
+let clockAnchor=null;state.notes=[];state.noteStatus="idle";state.noteDraft="";state.noteRetry=null;state.noteBusy=false;state.noteRead++;
 const now = () => {
  const instant=clockAnchor?new Date(clockAnchor.server+Math.max(0,performance.now()-clockAnchor.received)):new Date();
  const p=Object.fromEntries(dateFmt.formatToParts(instant).map(x=>[x.type,x.value]));
@@ -65,6 +65,7 @@ function signout(message="") {
 }
 function shell(){
  const ready=!!state.member;
+ for(const n of document.querySelectorAll('[data-route="notes"]'))n.hidden=!state.scheduleAdmin;
  $("app-shell").classList.toggle("signed",ready);$("app-shell").classList.toggle("collapsed",state.collapsed);
  for(const id of ["sidebar","toggle-nav","session-nav","mobile-nav","workspace"])$(id).hidden=!ready;
  $("signin").hidden=ready;
@@ -77,7 +78,7 @@ function shell(){
  const toggle=$("toggle-nav");
  toggle.setAttribute("aria-expanded",String(!state.collapsed));toggle.setAttribute("aria-label",state.collapsed?"Show menu":"Hide menu");toggle.title=state.collapsed?"Show menu":"Hide menu";
 }
-function route(to){if(!state.member||!["today","records"].includes(to))return;state.route=to;render();window.scrollTo(0,0);}
+function route(to){if(!state.member||(!["today","records"].includes(to)&&!(state.scheduleAdmin&&to==="notes")))return;state.route=to;render();if(to==="notes")void loadNotes();window.scrollTo(0,0);}
 function dataShape(data,key){if(!Array.isArray(data?.[key]))throw new ApiError(502,"invalid_response");return data[key];}
 async function loadCare({silent=false}={}){
  if(!state.member)return false;
@@ -142,6 +143,7 @@ function render(){
   if(n.dataset.route===state.route)n.setAttribute("aria-current","page");else n.removeAttribute("aria-current");
  }
  const root=$("workspace");
+ if(state.route==="notes"&&state.scheduleAdmin){renderNotes(root);return;}
  const today=state.route==="today";
  const head=hero(today?"Today":"Records",today?showDate(state.day||now().day):"Medication administration history");
  const caption=el("div","",el("h2","",today?"Medication schedule":"Administration log"),
@@ -181,6 +183,63 @@ function render(){
    list.append(el("article","card entry",tile("history"),body,status(true,"Given")));
   }root.append(list);
  }
+ syncClock();
+}
+
+const noteDateFmt=new Intl.DateTimeFormat("en-GB",{timeZone:tz,dateStyle:"medium",timeStyle:"short"});
+function noteStamp(value){
+ const d=new Date(value);return Number.isFinite(d.valueOf()) ? noteDateFmt.format(d)+" · Bangkok time" : "Time unavailable";
+}
+async function loadNotes(){
+ if(!state.scheduleAdmin)return;
+ const v=state.version,r=++state.noteRead;
+ state.noteStatus="loading";if(state.route==="notes")render();
+ try{
+  const res=await api("notes");if(v!==state.version||r!==state.noteRead)return;
+  state.notes=dataShape(res,"notes");state.noteStatus="ready";
+ }catch(ex){
+  if(v!==state.version||r!==state.noteRead)return;
+  if(ex.status===401){signout("Your session expired. Sign in again.");return;}
+  state.noteStatus="error";
+ }
+ if(state.route==="notes")render();
+}
+function renderNotes(root){
+ const form=el("form","card note-form");
+ const field=el("textarea");field.id="care-note";field.maxLength=1000;field.rows=3;field.required=true;
+ field.value=state.noteDraft;field.placeholder="What would you like to note?";
+ field.readOnly=state.noteBusy||Boolean(state.noteRetry);
+ field.addEventListener("input",()=>{state.noteDraft=field.value;});
+ const save=el("button","button primary",icon("check"),state.noteBusy?"Saving…":state.noteRetry?"Retry same note":"Save note");
+ save.type="submit";save.disabled=state.noteBusy;
+ const tip=state.noteRetry?"Save wasn’t confirmed. Retry this same note to avoid a duplicate.":"Notes are saved separately from medication records.";
+ form.append(el("h2","","Add a note"),label("Care note","note",field),el("p","muted",tip),save);
+ form.addEventListener("submit",async event=>{
+  event.preventDefault();if(state.noteBusy||!state.scheduleAdmin||!field.value.trim())return;
+  const v=state.version, payload=state.noteRetry||{id:crypto.randomUUID(),text:field.value.trim()};
+  state.noteDraft=payload.text;state.noteBusy=true;state.noteRead++;render();
+  try{
+   const res=await api("add-note",{method:"POST",data:payload});
+   if(v!==state.version)return;
+   if(res?.note?.id!==payload.id)throw new ApiError(502);
+   state.noteRetry=null;state.noteDraft="";state.noteBusy=false;say("Care note saved.");
+   void loadNotes();
+  }catch(ex){
+   if(v!==state.version)return;
+   if(ex.status===401){signout("Your session expired. Sign in again.");return;}
+   state.noteBusy=false;state.noteRetry=ex.status===0||ex.status>=500?payload:null;
+   say(state.noteRetry?"The save could not be confirmed.":"Note not saved. Check the text and try again.",true);
+   if(state.route==="notes")render();
+  }
+ });
+ const list=el("div","entries");
+ if(state.noteStatus==="loading")list.append(empty("Loading notes","Checking your saved care notes.","note"));
+ else if(state.noteStatus==="error")list.append(empty("Notes could not load","Use Refresh notes to try again.","note"));
+ else if(!state.notes.length)list.append(empty("No care notes yet","Your notes will appear here.","note"));
+ else for(const item of state.notes)list.append(el("article","card entry",tile("note"),el("div","",
+   el("p","meta","Saved "+noteStamp(item.createdAt)),el("p","entry-note",item.text))));
+ root.replaceChildren(hero("Care Notes","Daily updates and observations"),form,
+   el("div","section-head",el("h2","","Saved notes"),button("Refresh notes","refresh","button",()=>void loadNotes())),list);
  syncClock();
 }
 

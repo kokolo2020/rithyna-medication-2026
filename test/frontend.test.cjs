@@ -22,20 +22,23 @@ const findText=(node,t,tag="button")=>walk(node,n=>n?.tagName===tag&&n.textConte
 const tick=()=>new Promise(r=>setImmediate(r));
 async function run(role){
  const root=Object.fromEntries(list.map(id=>[id,new Node("div")]));
- const routes=["today","records"].map(route=>{const n=new Node("button");n.dataset.route=route;return n;});
+ const routes=["today","records","notes"].map(route=>{const n=new Node("button");n.dataset.route=route;return n;});
  const listeners={};
  const doc={visibilityState:"visible",addEventListener:(name,fn)=>{listeners[name]=fn;},getElementById:id=>root[id],createElement:t=>new Node(t),createTextNode:t=>new Node("#text",t),createElementNS:(_,t)=>new Node(t),querySelector:()=>null,querySelectorAll:()=>routes};
  const member={id:"self",name:role==="papa"?"Demo Parent":"Demo Nurse",role};
  const slot={id:"slot-a",time:"06:00:00",label:"Morning care",items:[{name:"Fictional A",amount:"2 sample units"}]};
  let history=[],calls=[],recordRequests=[],simulateConflict=false, simulateNetwork=false;
+ let notes=[];
  let server="2042-08-06T05:01:00Z",serverDay="2042-08-06";
  class TestDate extends Date { constructor(...a){super(...(a.length?a:["2042-08-05T15:01:00Z"]));} }
- const ctx={document:doc,window:{scrollTo(){},addEventListener(){}},URLSearchParams,Intl,Date:TestDate,Set,performance:{now:()=>0},setInterval(){},fetch:async(url,opts)=>{
+ const ctx={document:doc,window:{scrollTo(){},addEventListener(){}},URLSearchParams,Intl,Date:TestDate,Set,crypto:{randomUUID:()=>"12345678-abcd-49ab-9abc-123456789012"},performance:{now:()=>0},setInterval(){},fetch:async(url,opts)=>{
   const q=new URL(url,"https://local.invalid").searchParams, a=q.get("action");calls.push({a,day:q.get("date"),headers:opts.headers});
   const res=(out,status=200)=>({ok:status>=200&&status<300,status,json:async()=>out});
   if(a==="login"){const body=JSON.parse(opts.body);assert.equal(body.password,"synthetic-password");assert.equal(opts.headers.Authorization,undefined);return res({accessToken:"synthetic-token"});}
   assert.equal(opts.headers.Authorization,"Bearer synthetic-token");
-  if(a==="session")return res({member});
+  if(a==="session")return res({member,scheduleAdmin:role==="papa"});
+  if(a==="notes"){assert.equal(role,"papa");return res({notes});}
+  if(a==="add-note"){assert.equal(role,"papa");const saved={...JSON.parse(opts.body),createdAt:"2042-08-06T05:02:00Z"};notes=[saved];return res({note:saved},201);}
   if(a==="schedule")return res({date:q.get("date")||serverDay,serverNowMs:Date.parse(server),slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:[slot]});
   if(a==="history")return res({entries:history});
   if(a==="members"){assert.equal(role,"papa");return res({members:[member,{id:"nurse-other",name:"Another Nurse",role:"nurse"}]});}
@@ -106,6 +109,17 @@ async function run(role){
  assert.match(root["workspace"].textContent,/7 Aug 2042/);
  assert.equal(dialog.open,true);
  assert.equal(field("scheduled-date").value,"2042-08-05");
+ dialog.close();
+ if(role==="papa"){
+   routes[2].emit("click");await tick();
+   assert.match(root.workspace.textContent,/Care Notes/);
+   const box=walk(root.workspace,n=>n.id==="care-note");box.value="Synthetic care note";box.emit("input");
+   await walk(root.workspace,n=>n.tagName==="form").emit("submit");await tick();
+   assert.match(root.workspace.textContent,/Synthetic care note/);
+   assert.match(root.workspace.textContent,/12:02/);
+ } else {
+   routes[2].emit("click");assert(!calls.some(x=>x.a==="notes"));
+ }
  findText(root["session-nav"],"","button").emit("click");
  assert.equal(root["workspace"].hidden,true);
  assert.equal(root["workspace"].textContent,"");

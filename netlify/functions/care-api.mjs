@@ -4,7 +4,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ROLE = new Set(["papa", "nurse"]);
 const METHODS = new Map([
   ["login", "POST"], ["session", "GET"], ["schedule", "GET"],
-  ["history", "GET"], ["record", "POST"], ["members", "GET"], ["manage", "POST"]
+  ["history", "GET"], ["record", "POST"], ["members", "GET"], ["manage", "POST"], ["notes","GET"], ["add-note","POST"]
 ]);
 const BANGKOK_DAY = new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"});
 const bangkokDay = (instant) => {
@@ -102,9 +102,10 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
     const cfg = credentials(env);
     if (!cfg) return fail(503, "The new private workspace is not configured.", "not_configured");
 
-    const upstream = async (path, {token, body} = {}) => {
+    const upstream = async (path, {token, body, prefer} = {}) => {
       const headers = {"apikey":cfg.key, "accept":"application/json"};
       if (token) headers.authorization = "Bearer " + token;
+      if (prefer) headers.prefer=prefer;
       if (body !== undefined) headers["content-type"] = "application/json";
       const result = await transport(cfg.origin + path, {
         method:body === undefined ? "GET" : "POST",
@@ -155,6 +156,27 @@ export function createHandler({env = process.env, transport = fetch, demoNames =
       const actor = lookup.actor;
 
       if (action === "session") return respond(200, lookup.scheduleAdmin ? {member:actor,scheduleAdmin:true} : {member:actor});
+      if (action === "notes" || action === "add-note") {
+        if (!liveOwner || actor.id!==liveOwner.id) return forbidden();
+        const publicNote = row => ({id:row.id,text:row.body,createdAt:row.created_at});
+        if (action === "notes") {
+          const r=await upstream("/rest/v1/care_notes?select=id,body,created_at&order=created_at.desc,id.desc&limit=200",{token});
+          if (!r.ok || !Array.isArray(r.data)) return unavailable();
+          return respond(200,{notes:r.data.map(publicNote)});
+        }
+        const {id,text}=await readBody(request)||{};
+        if (typeof id!=="string" || !UUID.test(id) || typeof text!=="string" || !text.trim() || Array.from(text.trim()).length>1000)
+          return bodyInvalid("Enter a note of up to 1,000 characters.");
+        const r=await upstream("/rest/v1/care_notes?select=id,body,created_at",{token,body:{id,body:text.trim()},prefer:"return=representation"});
+        if (r.ok && r.data?.[0]?.id===id) return respond(201,{note:publicNote(r.data[0])});
+        if (r.data?.code==="23505") {
+          const existing=await upstream("/rest/v1/care_notes?select=id,body,created_at&id=eq."+id,{token});
+          if(existing.ok && existing.data?.[0]?.body===text.trim())return respond(200,{note:publicNote(existing.data[0])});
+          return fail(409,"That note could not be confirmed.","note_conflict");
+        }
+        if(r.status===401)return unauthenticated();
+        return unavailable();
+      }
       if (action === "manage") {
         if (!lookup.scheduleAdmin) return forbidden();
         const b=await readBody(request), {change,id,time,label,items}=b||{};

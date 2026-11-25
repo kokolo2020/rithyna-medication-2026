@@ -16,3 +16,4 @@ label{display:block;font-size:.88rem;font-weight:700}input,select,textarea{font:
 @media(max-width:440px){.day-progress{grid-template-columns:auto minmax(0,1fr)}.day-progress .button{grid-column:2;justify-self:start}}
 .schedule-items{display:grid;gap:8px}.schedule-item{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;padding:10px}
 @media(max-width:520px){.schedule-item{grid-template-columns:1fr}}
+.note-form{padding:16px;margin:1rem 0;display:grid;gap:10px}.note-form h2,.note-form p{margin:0}.note-form .button{justify-self:start}

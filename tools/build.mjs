@@ -14,6 +14,7 @@ for(const name of assets){
   let content=await readFile(new URL(name,root),"utf8");
   if(name==="index.html" && process.env.ICARE_BUILD_LIVE==="true")content=content
     .replace("iCare · Sign-in test","iCare · Private care workspace")
+    .replace("v9 · Test workspace","v9 · Private workspace")
     .replace("Test workspace only. Use your test name and PIN. Do not enter real care information.","Sign in with your private name and PIN. Automatic reminders are not enabled.");
   await writeFile(new URL(name,output),content);
 }
