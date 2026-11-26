@@ -153,6 +153,8 @@ function render(){
   today?el("small","","Confirm only after all items shown were given. Not recorded does not mean not given."):null);
  const actions=el("div","hero-inline",refreshButton());
  if(today&&state.load==="ready"&&state.scheduleAdmin)actions.prepend(button("Add time","plus","button primary",()=>manageSlot()));
+ if(today&&state.load==="ready"&&state.scheduleAdmin&&state.slots.some(s=>recorded(s.id,state.day)))
+  actions.append(button("Manage schedule","calendar","button",showScheduleSettings));
  if(!today&&state.load==="ready")actions.prepend(button("Log past dose","plus","button primary",()=>openRecord()));
  const section=el("div","section-head",caption,actions);
  root.replaceChildren(head,section);
@@ -162,16 +164,17 @@ function render(){
   const progress=dayProgress();
   if(progress)root.replaceChildren(head,progress,section);
   if(!state.slots.length){root.append(empty("No medications scheduled","There are no schedule entries for this date."));syncClock();return;}
+  const pending=state.slots.filter(s=>!recorded(s.id,state.day));
+  if(!pending.length){root.append(empty("No doses left to record today","Confirmed doses are in Records.","check"));syncClock();return;}
   const collection=el("div","doses");
-  for(const s of [...state.slots].sort((a,b)=>hm(a.time).localeCompare(hm(b.time)))){
-   const day=state.day,key=requestKey(s.id,day),entry=recorded(s.id,day);
+  for(const s of pending.sort((a,b)=>hm(a.time).localeCompare(hm(b.time)))){
+   const day=state.day,key=requestKey(s.id,day);
    const unknown=state.uncertain.has(key),saving=state.confirming.has(key);
-   const details=el("div","",el("time","",hm(s.time)||"Time unavailable"),el("h3","",val(s.label,"Scheduled dose")),medList(entry?.items||s.items));
-   if(entry)details.append(el("p","meta",[`Given by ${val(entry.givenBy,"caregiver")}`,`at ${hm(entry.actualTime)||"unknown time"}`,entry.actualDate&&entry.actualDate!==state.day?showDate(entry.actualDate):""].filter(Boolean).join(" ")));
-   if(unknown&&!entry)details.append(el("p","meta","Save status is uncertain. Check with your team before logging again."));
+   const details=el("div","",el("time","",hm(s.time)||"Time unavailable"),el("h3","",val(s.label,"Scheduled dose")),medList(s.items));
+   if(unknown)details.append(el("p","meta","Save status is uncertain. Check with your team before logging again."));
    const hasItems=Array.isArray(s.items)&&s.items.length>0;
-   const a=el("div","actions",status(!!entry,unknown&&!entry?"Check status":saving?"Saving…":""));
-   if(!entry&&!unknown&&!saving&&hasItems){
+   const a=el("div","actions",status(false,unknown?"Check status":saving?"Saving…":""));
+   if(!unknown&&!saving&&hasItems){
     if(hm(s.time)){
      const confirm=button("Confirm given now","check","button primary",()=>void confirmNow(s,day));
      confirm.dataset.confirmTime=hm(s.time);a.append(confirm);
@@ -179,7 +182,7 @@ function render(){
     a.append(button("Log details","clock","button",()=>{if(state.day===day)openRecord(s);}));
    }
    if(state.scheduleAdmin) a.append(button("Edit","note","button",()=>manageSlot(s)),button("Remove","", "button",()=>manageSlot(s,true)));
-   collection.append(el("article","card dose",tile(entry?"check":"pill",entry?"green":"coral"),details,a));
+   collection.append(el("article","card dose",tile("pill","coral"),details,a));
   }
   root.append(collection);
  } else {
@@ -267,6 +270,19 @@ function renderNotes(root){
  syncClock();
 }
 
+function showScheduleSettings(){
+ const dialog=$("record-dialog");
+ if(!state.scheduleAdmin||state.load!=="ready"||dialog.open)return;
+ const title=el("h2","","Manage schedule");title.id="record-title";
+ const wrapper=el("div","",title,el("p","muted","Changes here affect the schedule, not confirmed records."));
+ for(const s of [...state.slots].sort((a,b)=>hm(a.time).localeCompare(hm(b.time)))){
+  const row=label=>{dialog.close();manageSlot(s,label==="Remove");};
+  wrapper.append(el("div","card schedule-item",el("strong","",hm(s.time)+" · "+s.label),
+   button("Edit","note","button",()=>row("Edit")),button("Remove",null,"button",()=>row("Remove"))));
+ }
+ wrapper.append(button("Close",null,"button",()=>dialog.close()));dialog.oncancel=null;dialog.replaceChildren(wrapper);dialog.showModal();
+}
+
 function manageSlot(existing,remove=false){
  if(!state.scheduleAdmin||state.load!=="ready"||$("record-dialog").open)return;
  const dialog=$("record-dialog"),version=state.version;
@@ -286,7 +302,7 @@ function manageSlot(existing,remove=false){
   row.append(n,a,button("Remove item",null,"button",()=>{pairs.splice(pairs.indexOf(pair),1);row.remove();}));
   list.append(row);
  }
- form.append(title,el("p","muted",remove?"Stop this schedule time from tomorrow (Bangkok time). Past records stay unchanged.":existing?"Changes take effect tomorrow (Bangkok time). Past records stay unchanged.":"Check the medication and amount against the actual care instructions before saving."));
+ form.append(title,el("p","muted",remove?"Stop this schedule time from tomorrow (Bangkok time). Past records stay unchanged.":existing?"Changes take effect tomorrow (Bangkok time). Past records stay unchanged.":"For medications only. Check the name and amount against the care instructions. To log a care observation, use the Notes tab instead."));
  if(!remove){
   form.append(el("div","fields",label("Bangkok time","clock",time),label("Schedule label","note",name)),list,button("Add medication", "plus","button",()=>addItem()));
   for(const item of existing?.items||[{}])addItem(item);

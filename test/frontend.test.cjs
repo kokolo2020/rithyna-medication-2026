@@ -41,7 +41,7 @@ async function run(role,quick=""){
   if(a==="session")return res({member,scheduleAdmin:role==="papa"});
   if(a==="notes"){assert.equal(role,"papa");return res({notes});}
   if(a==="add-note"){assert.equal(role,"papa");const saved={...JSON.parse(opts.body),createdAt:"2042-08-06T18:02:00Z",occurredAt:JSON.parse(opts.body).date==="2042-08-06"&&JSON.parse(opts.body).time==="12:02"?"2042-08-06T05:02:00Z":undefined};notes=[saved];return res({note:saved},201);}
-  if(a==="schedule")return res({date:q.get("date")||serverDay,serverNowMs:Date.parse(server),slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:[slot]});
+  if(a==="schedule")return res({date:q.get("date")||serverDay,serverNowMs:Date.parse(server),slots:q.get("date")==="2042-08-05"?[{...slot,id:"historic-a",label:"Historical scheduled item"}]:quick==="remaining"?[slot,{...slot,id:"slot-b",time:"14:00",label:"Later care",items:[{name:"Fictional B",amount:"1 sample unit"}]}]:[slot]});
   if(a==="history")return res({entries:history});
   if(a==="members"){assert.equal(role,"papa");return res({members:[member,{id:"nurse-other",name:"Another Nurse",role:"nurse"}]});}
   if(a==="record"){
@@ -62,7 +62,7 @@ async function run(role,quick=""){
  assert.match(root["workspace"].textContent,/Fictional A/);
  assert.equal(calls.find(x=>x.a==="schedule").day,null);
  assert.match(root["workspace"].textContent,/6 Aug 2042/);
- assert.match(root["workspace"].textContent,/0 of 1 scheduled slots recorded/);
+ assert.match(root["workspace"].textContent,quick==="remaining"?/0 of 2 scheduled slots recorded/:/0 of 1 scheduled slots recorded/);
  const dialog=root["record-dialog"];
  function field(id){const e=walk(dialog,n=>n.id===id);assert(e,id);return e;}
  function form(){return walk(dialog,n=>n.tagName==="form");}
@@ -82,10 +82,19 @@ async function run(role,quick=""){
    assert.equal(recordRequests.length,0);
   }else{
    assert.deepEqual(recordRequests[0],{slotId:"slot-a",scheduledDate:"2042-08-06",actualDate:"2042-08-06",actualTime:"12:01"});
-   if(quick==="success"){
-    assert.match(root.workspace.textContent,/All scheduled slots recorded/);
+   if(quick==="success"||quick==="remaining"){
+    assert.doesNotMatch(root.workspace.textContent,/Fictional A/);
+    if(quick==="remaining"){
+     assert.match(root.workspace.textContent,/Fictional B/);
+     assert.match(root.workspace.textContent,/1 of 2 scheduled slots recorded/);
+    }else assert.match(root.workspace.textContent,/No doses left to record today/);
     assert.match(root.notice.textContent,/Given record saved/);
+    if(role==="papa"){
+     findText(root.workspace,"Manage schedule").emit("click");
+     assert.match(dialog.textContent,/Morning care/);dialog.close();
+    }else assert.equal(findText(root.workspace,"Manage schedule"),undefined);
     findText(root.workspace,"View records").emit("click");
+    assert.match(root.workspace.textContent,/Fictional A/);
     assert(root.workspace.textContent.includes("Given by "+member.name+" · Logged by "+member.name));
    }else{
     assert.match(root.workspace.textContent,/Check status/);
@@ -106,7 +115,8 @@ async function run(role,quick=""){
  assert.equal(recordRequests[0].actualDate,"2042-08-06");
  assert.equal(recordRequests[0].givenById,role==="papa"?"nurse-other":undefined);
  assert.equal(findText(root["workspace"],"Confirm given"),undefined);
- assert.match(root["workspace"].textContent,/Recorded/);
+ assert.doesNotMatch(root["workspace"].textContent,/Fictional A/);
+ assert.match(root["workspace"].textContent,/No doses left to record today/);
  assert.match(root["workspace"].textContent,/All scheduled slots recorded/);
  assert.match(root["workspace"].textContent,/1 of 1 scheduled slots recorded/);
  findText(root["workspace"],"View records").emit("click");
@@ -166,6 +176,6 @@ async function run(role,quick=""){
 (async()=>{
  await run("papa");await run("nurse");
  for(const role of ["papa","nurse"])await run(role,"success");
- for(const quick of ["duplicate","network","future"])await run("papa",quick);
+ for(const quick of ["duplicate","network","future","remaining"])await run("papa",quick);
  console.log("Synthetic UI passed: one-tap Bangkok recording, double tap, duplicate, uncertain save, future slot, and existing manual logging and notes.");
 })().catch(e=>{console.error(e);process.exitCode=1;});
