@@ -3,7 +3,7 @@
 const $ = id => document.getElementById(id);
 const state = {
   token:null, member:null, scheduleAdmin:false, members:[], slots:[], rows:[], route:"today",
-  load:"idle", notes:[], noteStatus:"idle", noteDraft:"", noteWhen:null, noteRetry:null, noteBusy:false, noteRead:0, day:"", version:0, read:0, collapsed:false, uncertain:new Set()
+  load:"idle", notes:[], noteStatus:"idle", noteDraft:"", noteWhen:null, noteRetry:null, noteBusy:false, noteRead:0, day:"", version:0, read:0, collapsed:false, uncertain:new Set(), confirming:new Set()
 };
 const tz = "Asia/Bangkok";
 const dateFmt = new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit"});
@@ -57,7 +57,7 @@ async function api(action,{method="GET",data,token=state.token,date}={}) {
 }
 function signout(message="") {
  clockAnchor=null;
- state.version++;state.read++;state.token=null;state.member=null;state.scheduleAdmin=false;state.members=[];state.slots=[];state.rows=[];state.route="today";state.load="idle";state.day="";state.uncertain=new Set();
+ state.version++;state.read++;state.token=null;state.member=null;state.scheduleAdmin=false;state.members=[];state.slots=[];state.rows=[];state.route="today";state.load="idle";state.day="";state.uncertain=new Set();state.confirming=new Set();
  if($("record-dialog").open)$("record-dialog").close();
  $("record-dialog").replaceChildren();$("workspace").replaceChildren();$("password").value="";
  $("login-error").textContent="";$("login-error").hidden=true;
@@ -122,7 +122,10 @@ function hero(title,description){
    el("div","clock",icon("clock"),el("div","",el("small","","Bangkok time"),t)));
 }
 function syncClock(){
- const e=document.querySelector("[data-live-clock]");if(e)e.textContent=now().time;
+ const stamp=now(),e=document.querySelector("[data-live-clock]");if(e)e.textContent=stamp.time;
+ for(const b of document.querySelectorAll("button[data-confirm-time]")){
+  if(b.dataset.confirmTime)b.disabled=stamp.day!==state.day||stamp.time<b.dataset.confirmTime;
+ }
 }
 function refreshButton(){
  return button("Refresh","refresh","button",()=>{say();void loadCare();});
@@ -147,7 +150,7 @@ function render(){
  const today=state.route==="today";
  const head=hero(today?"Today":"Records",today?showDate(state.day||now().day):"Medication administration history");
  const caption=el("div","",el("h2","",today?"Medication schedule":"Administration log"),
-  today?el("small","","Not recorded does not mean not given."):null);
+  today?el("small","","Confirm only after all items shown were given. Not recorded does not mean not given."):null);
  const actions=el("div","hero-inline",refreshButton());
  if(today&&state.load==="ready"&&state.scheduleAdmin)actions.prepend(button("Add time","plus","button primary",()=>manageSlot()));
  if(!today&&state.load==="ready")actions.prepend(button("Log past dose","plus","button primary",()=>openRecord()));
@@ -161,13 +164,20 @@ function render(){
   if(!state.slots.length){root.append(empty("No medications scheduled","There are no schedule entries for this date."));syncClock();return;}
   const collection=el("div","doses");
   for(const s of [...state.slots].sort((a,b)=>hm(a.time).localeCompare(hm(b.time)))){
-   const entry=recorded(s.id,state.day),unknown=state.uncertain.has(requestKey(s.id,state.day));
+   const day=state.day,key=requestKey(s.id,day),entry=recorded(s.id,day);
+   const unknown=state.uncertain.has(key),saving=state.confirming.has(key);
    const details=el("div","",el("time","",hm(s.time)||"Time unavailable"),el("h3","",val(s.label,"Scheduled dose")),medList(entry?.items||s.items));
    if(entry)details.append(el("p","meta",[`Given by ${val(entry.givenBy,"caregiver")}`,`at ${hm(entry.actualTime)||"unknown time"}`,entry.actualDate&&entry.actualDate!==state.day?showDate(entry.actualDate):""].filter(Boolean).join(" ")));
    if(unknown&&!entry)details.append(el("p","meta","Save status is uncertain. Check with your team before logging again."));
    const hasItems=Array.isArray(s.items)&&s.items.length>0;
-   const a=el("div","actions",status(!!entry,unknown&&!entry?"Check status":""));
-   if(!entry&&!unknown&&hasItems) a.append(button("Confirm given","check","button primary",()=>openRecord(s)));
+   const a=el("div","actions",status(!!entry,unknown&&!entry?"Check status":saving?"Saving…":""));
+   if(!entry&&!unknown&&!saving&&hasItems){
+    if(hm(s.time)){
+     const confirm=button("Confirm given now","check","button primary",()=>void confirmNow(s,day));
+     confirm.dataset.confirmTime=hm(s.time);a.append(confirm);
+    }
+    a.append(button("Log details","clock","button",()=>{if(state.day===day)openRecord(s);}));
+   }
    if(state.scheduleAdmin) a.append(button("Edit","note","button",()=>manageSlot(s)),button("Remove","", "button",()=>manageSlot(s,true)));
    collection.append(el("article","card dose",tile(entry?"check":"pill",entry?"green":"coral"),details,a));
   }
@@ -302,6 +312,33 @@ function manageSlot(existing,remove=false){
  });
 }
 
+async function confirmNow(slot,day){
+ const stamp=now(), v=state.version, key=requestKey(slot.id,day);
+ if(!state.member||state.load!=="ready"||!clockAnchor||$("record-dialog").open||
+    day!==state.day||day!==stamp.day||!hm(slot.time)||stamp.time<hm(slot.time)||
+    !state.slots.includes(slot)||!Array.isArray(slot.items)||!slot.items.length||
+    recorded(slot.id,day)||state.uncertain.has(key)||state.confirming.has(key))return;
+ state.confirming.add(key);say();render();
+ try{
+  const {entry}=await api("record",{method:"POST",data:{slotId:slot.id,scheduledDate:day,actualDate:stamp.day,actualTime:stamp.time}});
+  if(v!==state.version)return;
+  if(!entry?.id||String(entry.slotId)!==String(slot.id)||entry.scheduledDate!==day)throw new ApiError(502);
+  state.rows=[entry,...state.rows.filter(x=>x.id!==entry.id)];
+  say("Given record saved.");
+  void loadCare({silent:true});
+ }catch(e){
+  if(v!==state.version)return;
+  if(e.status===401){signout("Your session expired. Sign in again.");return;}
+  if(e.status===409||e.status===0||e.status>=500){
+   state.uncertain.add(key);
+   say(e.status===409?"This dose already has a record. Check Records.":"Could not confirm the save. Check Records before trying again.",true);
+   void loadCare({silent:true});
+  }else say(e.status===403?"You don’t have permission to make this record.":"This record was not saved. Refresh and review the scheduled dose.",true);
+ }finally{
+  if(v===state.version){state.confirming.delete(key);render();}
+ }
+}
+
 function openRecord(initialSlot){
  const dialog=$("record-dialog");
  if(dialog.open||!state.member||state.load!=="ready")return;
@@ -344,7 +381,8 @@ function openRecord(initialSlot){
   const match=choices.find(s=>String(s.id)===slot.value);
   sample.replaceChildren();if(match)sample.append(medList(match.items));
   submit.disabled=busy||noRetry||!match||!Array.isArray(match.items)||!match.items.length||
-   !!recorded(match.id,schedDate.value)||state.uncertain.has(requestKey(match.id,schedDate.value));
+   !!recorded(match.id,schedDate.value)||state.uncertain.has(requestKey(match.id,schedDate.value))||
+   state.confirming.has(requestKey(match.id,schedDate.value));
   if(match&&recorded(match.id,schedDate.value))err("This scheduled dose already has a record. Open Records to review it.");
   else if(match&&state.uncertain.has(requestKey(match.id,schedDate.value)))err("The save result is uncertain. Check with your team before recording this dose again.");
  }
@@ -376,7 +414,7 @@ function openRecord(initialSlot){
   if(day>n.day||atDay>n.day||(atDay===n.day&&atTime>n.time)){err("Enter a date and time that have already passed.");return;}
   if(!checked.checked){err("Confirm that the medication was already given before saving.");return;}
   const key=requestKey(selected.id,day);
-  if(recorded(selected.id,day)||state.uncertain.has(key)){updatePreview();return;}
+  if(recorded(selected.id,day)||state.uncertain.has(key)||state.confirming.has(key)){updatePreview();return;}
   const req={slotId:selected.id,scheduledDate:day,actualDate:atDay,actualTime:atTime,note:note.value.trim()};
   if(member.role==="papa"&&person.value&&person.value!==String(member.id))req.givenById=person.value;
   err();busy=true;cancel.disabled=true;updatePreview();

@@ -20,17 +20,19 @@ const list=["app-shell","sidebar","toggle-nav","session-nav","mobile-nav","works
 const walk=(node,fn)=>fn(node)?node:node?.children.map(x=>walk(x,fn)).find(Boolean);
 const findText=(node,t,tag="button")=>walk(node,n=>n?.tagName===tag&&n.textContent.includes(t));
 const tick=()=>new Promise(r=>setImmediate(r));
-async function run(role){
+async function run(role,quick=""){
  const root=Object.fromEntries(list.map(id=>[id,new Node("div")]));
  const routes=["today","records","notes"].map(route=>{const n=new Node("button");n.dataset.route=route;return n;});
  const listeners={};
  const doc={visibilityState:"visible",addEventListener:(name,fn)=>{listeners[name]=fn;},getElementById:id=>root[id],createElement:t=>new Node(t),createTextNode:t=>new Node("#text",t),createElementNS:(_,t)=>new Node(t),querySelector:()=>null,querySelectorAll:()=>routes};
  const member={id:"self",name:role==="papa"?"Demo Parent":"Demo Nurse",role};
- const slot={id:"slot-a",time:"06:00:00",label:"Morning care",items:[{name:"Fictional A",amount:"2 sample units"}]};
+ const slot={id:"slot-a",time:quick==="future"?"20:00:00":"06:00:00",label:"Morning care",items:[{name:"Fictional A",amount:"2 sample units"}]};
  let history=[],calls=[],recordRequests=[],simulateConflict=false, simulateNetwork=false;
  let notes=[];
  let server="2042-08-06T05:01:00Z",serverDay="2042-08-06";
  class TestDate extends Date { constructor(...a){super(...(a.length?a:["2042-08-05T15:01:00Z"]));} }
+ doc.querySelectorAll=selector=>selector==="button[data-confirm-time]"?
+  [findText(root.workspace,"Confirm given now")].filter(Boolean):routes;
  const ctx={document:doc,window:{scrollTo(){},addEventListener(){}},URLSearchParams,Intl,Date:TestDate,Set,crypto:{randomUUID:()=>"12345678-abcd-49ab-9abc-123456789012"},performance:{now:()=>0},setInterval(){},fetch:async(url,opts)=>{
   const q=new URL(url,"https://local.invalid").searchParams, a=q.get("action");calls.push({a,day:q.get("date"),headers:opts.headers});
   const res=(out,status=200)=>({ok:status>=200&&status<300,status,json:async()=>out});
@@ -64,7 +66,37 @@ async function run(role){
  const dialog=root["record-dialog"];
  function field(id){const e=walk(dialog,n=>n.id===id);assert(e,id);return e;}
  function form(){return walk(dialog,n=>n.tagName==="form");}
- findText(root["workspace"],"Confirm given").emit("click");
+ if(quick){
+  const confirm=findText(root.workspace,"Confirm given now");
+  assert(confirm);
+  simulateConflict=quick==="duplicate";simulateNetwork=quick==="network";
+  assert.equal(confirm.disabled,quick==="future");
+  confirm.emit("click");
+  confirm.emit("click"); // Even a stale DOM event cannot issue a second write.
+  await tick();
+  assert.equal(dialog.open,false);
+  assert.equal(recordRequests.length,quick==="future"?0:1);
+  if(quick==="future"){
+   findText(root.workspace,"Log details").emit("click");
+   assert.equal(dialog.open,true);
+   assert.equal(recordRequests.length,0);
+  }else{
+   assert.deepEqual(recordRequests[0],{slotId:"slot-a",scheduledDate:"2042-08-06",actualDate:"2042-08-06",actualTime:"12:01"});
+   if(quick==="success"){
+    assert.match(root.workspace.textContent,/All scheduled slots recorded/);
+    assert.match(root.notice.textContent,/Given record saved/);
+    findText(root.workspace,"View records").emit("click");
+    assert(root.workspace.textContent.includes("Given by "+member.name+" · Logged by "+member.name));
+   }else{
+    assert.match(root.workspace.textContent,/Check status/);
+    assert.equal(findText(root.workspace,"Confirm given now"),undefined);
+    assert.equal(findText(root.workspace,"Log details"),undefined);
+    assert.doesNotMatch(root.notice.textContent,/Given record saved/);
+   }
+  }
+  return;
+ }
+ findText(root["workspace"],"Log details").emit("click");
  field("actual-time").value="08:02";
  await form().emit("submit");assert.equal(recordRequests.length,0);assert.match(dialog.textContent,/already given before saving/);
  field("given-confirmed").checked=true;
@@ -131,4 +163,9 @@ async function run(role){
  assert.equal(root["record-dialog"].textContent,"");
  if(role==="nurse")assert(!calls.some(x=>x.a==="members"));
 }
-(async()=>{await run("papa");await run("nurse");console.log("UI synthetic flow passed: two roles, date-specific fetch, confirmation before write, delegated attribution, duplicate suppression (including reopening), and session clearing.");})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{
+ await run("papa");await run("nurse");
+ for(const role of ["papa","nurse"])await run(role,"success");
+ for(const quick of ["duplicate","network","future"])await run("papa",quick);
+ console.log("Synthetic UI passed: one-tap Bangkok recording, double tap, duplicate, uncertain save, future slot, and existing manual logging and notes.");
+})().catch(e=>{console.error(e);process.exitCode=1;});
